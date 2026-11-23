@@ -12,6 +12,7 @@ struct FrameSettings {
     var overlayRect = CGRect(x: 0.72, y: 0.72, width: 0.24, height: 0.24)
     var overlayOpacity: Double = 1
     var backgroundEnabled = false
+    var matte: MatteSettings = .standard
     var adjustments: ImageAdjustments = .neutral
     var sourceAspect: CGFloat = 16.0 / 9.0
     var wantsOutput = false
@@ -36,8 +37,19 @@ final class FramePipeline: NSObject, @unchecked Sendable {
     private var animator = CropAnimator()
     private var overlay: OverlayTexture?
     private var background: BackgroundImage?
-    /// Only touched from `process`, on the capture queue.
+    /// Only touched on `segmentationQueue`.
     private let segmenter = PersonSegmenter()
+    /// Vision takes 25 ms per 4K frame at its fastest and 140 ms at its best,
+    /// against the 33 ms a 30 fps frame has, so it runs beside the capture
+    /// queue: every frame is composited with the newest mask there is, and a
+    /// new one is started whenever the last has finished. The camera keeps its
+    /// frame rate; the mask trails it by about one segmentation.
+    private let segmentationQueue = DispatchQueue(
+        label: "com.trsdn.openlens.segmentation",
+        qos: .userInitiated
+    )
+    private var isSegmenting = false
+    private var latestMask: PersonMask?
     private var previewTarget: PreviewRenderTarget?
     private var lastFrameTime: CFTimeInterval = 0
     /// The idle card the virtual camera receives while paused. Built once per
@@ -166,18 +178,22 @@ final class FramePipeline: NSObject, @unchecked Sendable {
             frameOverlay = nil
         }
 
+        let cropRect = CropGeometry.rect(
+            for: crop,
+            sourceAspect: snapshot.sourceAspect,
+            outputAspect: CGFloat(OpenLensOutput.aspectRatio)
+        )
+
         let frame = VideoRenderer.Frame(
             pixelBuffer: pixelBuffer,
-            crop: CropGeometry.rect(
-                for: crop,
-                sourceAspect: snapshot.sourceAspect,
-                outputAspect: CGFloat(OpenLensOutput.aspectRatio)
-            ),
+            crop: cropRect,
             mirror: snapshot.mirror,
             overlay: frameOverlay,
             adjustments: snapshot.adjustments,
             background: frameBackground,
-            personMask: frameBackground == nil ? nil : segmenter.mask(for: pixelBuffer)
+            personMask: frameBackground == nil
+                ? nil : personMask(for: pixelBuffer, region: cropRect, matte: snapshot.matte),
+            matte: snapshot.matte
         )
 
         if rendersOutput, let output = renderer.renderToOutputBuffer(frame) {
@@ -194,6 +210,30 @@ final class FramePipeline: NSObject, @unchecked Sendable {
             lastActivityReport = now
             onFrameActivity?()
         }
+    }
+
+    /// The newest mask, after starting the next one if none is running.
+    private func personMask(
+        for pixelBuffer: CVPixelBuffer,
+        region: CGRect,
+        matte: MatteSettings
+    ) -> PersonMask? {
+        os_unfair_lock_lock(&lock)
+        let mask = latestMask
+        let starts = !isSegmenting
+        isSegmenting = true
+        os_unfair_lock_unlock(&lock)
+
+        if starts {
+            segmentationQueue.async { [self] in
+                let next = segmenter.mask(for: pixelBuffer, region: region, settings: matte)
+                os_unfair_lock_lock(&lock)
+                latestMask = next
+                isSegmenting = false
+                os_unfair_lock_unlock(&lock)
+            }
+        }
+        return mask
     }
 
     // MARK: - Pause

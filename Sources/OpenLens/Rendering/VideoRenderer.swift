@@ -9,6 +9,7 @@ struct RenderUniforms {
     var cropRect: SIMD4<Float>
     var overlayRect: SIMD4<Float>
     var backgroundRect: SIMD4<Float>
+    var maskRect: SIMD4<Float>
     var overlayOpacity: Float
     var mirror: Float
     var lumaOffset: Float
@@ -25,6 +26,9 @@ struct RenderUniforms {
     var tintShift: Float
     var shadowShift: Float
     var highlightShift: Float
+    var maskSpatialFactor: Float
+    var maskRangeFactor: Float
+    var maskShrink: Float
 }
 
 /// The whole image pipeline: one Metal pass that crops, scales and composites.
@@ -155,7 +159,8 @@ final class VideoRenderer {
         /// Where the person is, from `PersonSegmenter`. Without one, a set
         /// background covers the whole frame: if the person cannot be found,
         /// showing the room that was meant to be hidden is the worse failure.
-        var personMask: CVPixelBuffer?
+        var personMask: PersonMask?
+        var matte: MatteSettings = .standard
     }
 
     /// Renders into a pooled NV12 buffer destined for the virtual camera.
@@ -289,6 +294,15 @@ final class VideoRenderer {
         let texture: MTLTexture
     }
 
+    private static func vector(_ rect: CGRect) -> SIMD4<Float> {
+        SIMD4<Float>(
+            Float(rect.origin.x),
+            Float(rect.origin.y),
+            Float(rect.width),
+            Float(rect.height)
+        )
+    }
+
     private static func isBiplanar(_ pixelBuffer: CVPixelBuffer) -> Bool {
         let format = CVPixelBufferGetPixelFormatType(pixelBuffer)
         return format == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
@@ -318,18 +332,17 @@ final class VideoRenderer {
 
         // Blank means no person anywhere, so the background fills the frame.
         let mask = frame.personMask.flatMap {
-            makeTexture(from: $0, plane: 0, format: .r8Unorm)
+            makeTexture(from: $0.buffer, plane: 0, format: .r8Unorm)
         }
 
-        // Zero width switches the background off in the shader.
+        // Zero width switches the background, and the mask, off in the shader.
         var backgroundRect = SIMD4<Float>(0, 0, 0, 0)
         if let visible = frame.background?.visibleRect {
-            backgroundRect = SIMD4<Float>(
-                Float(visible.origin.x),
-                Float(visible.origin.y),
-                Float(visible.width),
-                Float(visible.height)
-            )
+            backgroundRect = Self.vector(visible)
+        }
+        var maskRect = SIMD4<Float>(0, 0, 0, 0)
+        if mask != nil, let region = frame.personMask?.region {
+            maskRect = Self.vector(region)
         }
 
         guard let commandBuffer = commandQueue.makeCommandBuffer() else { return false }
@@ -352,6 +365,7 @@ final class VideoRenderer {
                 )
             } ?? SIMD4<Float>(0, 0, 0, 0),
             backgroundRect: backgroundRect,
+            maskRect: maskRect,
             overlayOpacity: Float(frame.overlay?.opacity ?? 0),
             mirror: frame.mirror ? 1 : 0,
             lumaOffset: isFullRange ? 0.0 : 16.0 / 255.0,
@@ -367,7 +381,10 @@ final class VideoRenderer {
             temperatureShift: Float(frame.adjustments.temperatureShift),
             tintShift: Float(frame.adjustments.tintShift),
             shadowShift: Float(frame.adjustments.shadowShift),
-            highlightShift: Float(frame.adjustments.highlightShift)
+            highlightShift: Float(frame.adjustments.highlightShift),
+            maskSpatialFactor: frame.matte.spatialFactor,
+            maskRangeFactor: frame.matte.rangeFactor,
+            maskShrink: Float(frame.matte.shrink)
         )
 
         for pass in passes {

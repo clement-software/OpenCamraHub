@@ -239,11 +239,14 @@ final class VideoRendererTests: XCTestCase {
 
     // MARK: - Background
 
-    /// A one-channel mask the size Vision returns at `.fast`: the person fills
-    /// the left half of the source, nobody is on the right.
-    private func makePersonMask() throws -> CVPixelBuffer {
-        let width = 256
-        let height = 192
+    /// A one-channel mask, the size Vision returns at `.fast` unless told
+    /// otherwise, covering `region` of the source: the person fills its left
+    /// half, nobody is on the right.
+    private func makePersonMask(
+        width: Int = 256,
+        height: Int = 192,
+        region: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+    ) throws -> PersonMask {
         var buffer: CVPixelBuffer?
         let attributes: [CFString: Any] = [
             kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
@@ -269,7 +272,7 @@ final class VideoRendererTests: XCTestCase {
             let row = base.advanced(by: y * stride).assumingMemoryBound(to: UInt8.self)
             for x in 0..<width { row[x] = x < width / 2 ? 255 : 0 }
         }
-        return mask
+        return PersonMask(buffer: mask, region: region)
     }
 
     /// Green, so it cannot be mistaken for either half of the source.
@@ -283,16 +286,19 @@ final class VideoRendererTests: XCTestCase {
 
     private func backgroundFrame(
         _ source: CVPixelBuffer,
+        crop: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1),
         mirror: Bool = false,
-        mask: CVPixelBuffer?
+        mask: PersonMask?,
+        matte: MatteSettings = .standard
     ) throws -> VideoRenderer.Frame {
         VideoRenderer.Frame(
             pixelBuffer: source,
-            crop: CGRect(x: 0, y: 0, width: 1, height: 1),
+            crop: crop,
             mirror: mirror,
             overlay: nil,
             background: try makeBackground(),
-            personMask: mask
+            personMask: mask,
+            matte: matte
         )
     }
 
@@ -322,6 +328,75 @@ final class VideoRendererTests: XCTestCase {
         let output = try render(try backgroundFrame(try makeSourceBuffer(), mask: nil))
         assertDominant(\.y, try sample(output, atX: 0.25, y: 0.5))
         assertDominant(\.y, try sample(output, atX: 0.75, y: 0.5))
+    }
+
+    /// The mask covers only the part of the source on screen, here the right
+    /// half, and has to land there rather than across the whole frame.
+    func testTheMaskIsPlacedOnTheRegionItWasMadeFor() throws {
+        let rightHalf = CGRect(x: 0.5, y: 0, width: 0.5, height: 1)
+        let output = try render(
+            try backgroundFrame(
+                try makeSourceBuffer(),
+                crop: rightHalf,
+                mask: try makePersonMask(region: rightHalf)
+            )
+        )
+        // The blue right half of the source, with the person on its left half.
+        assertDominant(\.z, try sample(output, atX: 0.25, y: 0.5))
+        assertDominant(\.y, try sample(output, atX: 0.75, y: 0.5))
+    }
+
+    /// The mask's edge and the picture's edge coincide at the middle, and the
+    /// mask is four texels wide, so a pixel just right of the middle sits a
+    /// quarter of a texel from the person. Smoothed on its own, the mask still
+    /// gives that pixel a share of the person, so blue camera shows through
+    /// the green background. With edge detail, the texels on the red side of
+    /// the edge no longer count for a blue pixel, and the background is clean.
+    func testEdgeDetailKeepsTheEdgeOnTheEdgeInThePicture() throws {
+        let coarse = try makePersonMask(width: 4, height: 3)
+        let justRight = 0.56
+
+        let smoothed = try sample(
+            try render(
+                try backgroundFrame(
+                    try makeSourceBuffer(),
+                    mask: coarse,
+                    matte: MatteSettings(edgeDetail: 0)
+                )
+            ),
+            atX: justRight,
+            y: 0.5
+        )
+        XCTAssertGreaterThan(Int(smoothed.b), 60, "the camera should bleed through without it")
+
+        let guided = try render(
+            try backgroundFrame(
+                try makeSourceBuffer(),
+                mask: coarse,
+                matte: MatteSettings(edgeDetail: 1)
+            )
+        )
+        assertDominant(\.y, try sample(guided, atX: justRight, y: 0.5))
+        assertDominant(\.x, try sample(guided, atX: 0.44, y: 0.5))
+    }
+
+    func testStabilityKeepsTheOldMaskOnlyWhereItBarelyMoved() {
+        let new: [UInt8] = [0, 255, 200]
+        let earlier: [UInt8] = [0, 0, 100]
+        var output = [UInt8](repeating: 0, count: 3)
+        PersonSegmenter.blendRow(new, earlier, into: &output, count: 3, stability: 0.5)
+        // Unchanged stays put, a full change is not smoothed at all, and a
+        // partial one keeps part of the past: 200 + 0.5 × (1 − 100/255) × −100.
+        XCTAssertEqual(output, [0, 255, 170])
+    }
+
+    /// Core Image counts rows from the bottom, the crop from the top.
+    func testTheSegmentedRegionIsFlippedIntoCoreImageCoordinates() {
+        let topStrip = CGRect(x: 0, y: 0, width: 0.5, height: 0.25)
+        XCTAssertEqual(
+            PersonSegmenter.coreImageRect(for: topStrip, width: 100, height: 100),
+            CGRect(x: 0, y: 75, width: 50, height: 25)
+        )
     }
 
     func testTheBackgroundFillsTheFrameWithoutStretching() {

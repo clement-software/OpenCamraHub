@@ -83,7 +83,8 @@ want the product rather than the source. See
   finds you in each frame, on the Mac, and the image replaces the room behind
   you. It fills the frame without stretching and is not mirrored with the
   camera. If nobody can be found, the image covers the whole frame rather than
-  showing the room.
+  showing the room. Quality, edge detail, softness, stability and shrink tune
+  the cut-out for your room and camera.
 - **Tone and colour correction** for cameras that have no controls of their own —
   HDMI grabbers like a Cam Link expose none, and macOS offers no manual values
   either. Exposure, black point, white point, midtones and an S-curve contrast,
