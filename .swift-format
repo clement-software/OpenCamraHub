@@ -5,10 +5,13 @@
   "respectsExistingLineBreaks": true,
   "lineBreakBeforeEachArgument": false,
   "rules": {
-    "AlwaysUseLowerCamelCase": false,
+    "AlwaysUseLowerCamelCase": true,
+    "NeverUseForceTry": true,
     "NoBlockComments": false,
+    "NoLeadingUnderscores": true,
     "OrderedImports": false,
     "UseLetInEveryBoundCaseVariable": false,
-    "UseSynthesizedInitializer": false
+    "UseSynthesizedInitializer": false,
+    "ValidateDocumentationComments": true
   }
 }

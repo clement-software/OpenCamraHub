@@ -17,6 +17,7 @@ drives Elgato Key Lights and is remote-controllable over a local socket.
 | `Tools/openlens-mcp` | The MCP server and socket client the plugin vendors |
 | `site/`, `scripts/build_site.sh` | The GitHub Pages site |
 | `project.yml` → `OpenLens.xcodeproj` | XcodeGen spec and the committed project generated from it |
+| `.claude/skills/` | Agent skills vendored for this repository (see "Writing Swift") |
 
 Authoritative commands:
 
@@ -29,6 +30,17 @@ xcrun swift-format lint --strict --parallel --configuration .swift-format --recu
 
 `swift-format` ships with Xcode and its configuration is committed, so CI and
 a local run agree. `xcrun swift-format format -i` applies it.
+
+Names, labels and doc comments follow the
+[Swift API Design Guidelines](https://www.swift.org/documentation/api-design-guidelines/).
+`swift-format` checks the parts a tool can: lower camel case, no leading
+underscores, doc comments that match their parameters, no `try!`. Review
+covers the rest. There is no SwiftLint: its rules overlap `swift-format`'s,
+and it would be a second tool to install on every runner.
+
+Because `.swift-format` has a `rules` block, swift-format runs **only the rules
+listed there as `true`**; it does not fill in defaults for the rest. To enable
+a rule, add it with `true`, and check first that lint is still clean.
 
 ## Forbidden and high-risk operations
 
@@ -243,6 +255,57 @@ xcodebuild test -project OpenLens.xcodeproj -scheme OpenLens -destination 'platf
 
 The Xcode project is generated from `project.yml` by `xcodegen`; regenerate it
 after adding or removing files.
+
+## Writing Swift: load `swift-6-agent-skill` first
+
+Before writing, reviewing or refactoring Swift in `Sources/` or `Tests/`, invoke
+the `swift-6-agent-skill` skill, every time, even for a small change. It is
+vendored in `.claude/skills/swift-6-agent-skill` (MIT, from
+[pchelnikov/Swift-6-Agent-Skill](https://github.com/pchelnikov/Swift-6-Agent-Skill)
+at `e5f791a`). To update it, copy that repository's `swift-6-agent-skill/`
+folder and `LICENSE` over it and change the commit here.
+
+The skill describes Swift 6.0–6.4; this project uses less of it. Where the two
+disagree, this file wins:
+
+- **Swift 5 language mode, `SWIFT_STRICT_CONCURRENCY: minimal`** (`project.yml`).
+  Do not change either, or adopt `-default-isolation MainActor`, as part of a
+  feature: that is a migration with its own pull request. Checklist items that
+  assume Swift 6 mode are suggestions here, not defects.
+- **Deployment target macOS 14.** APIs that need a newer runtime — `Mutex` and
+  `Atomic` (macOS 15), `InlineArray` and `Observations` (macOS 26) — need an
+  `@available` guard with a macOS 14 path, or should not be used.
+- **Releases are compiled by the `macos-15` image's Xcode**, the pinned CI
+  runner. A language feature newer than that toolchain may compile locally and
+  fail there; CI is the judge.
+- **Tests stay XCTest.** Every test file uses it. Do not add Swift Testing
+  (`@Test`, `#expect`) or convert tests unless that is the task.
+- **Formatting belongs to `swift-format`.** Trailing commas and other style
+  points follow `.swift-format` and the lint command above, not the skill.
+
+## Writing SwiftUI: load `swiftui-pro` too
+
+Before writing, reviewing or refactoring SwiftUI (files that `import SwiftUI`,
+mostly `Sources/OpenLens/UI`), invoke `swiftui-pro` as well. It is vendored in
+`.claude/skills/swiftui-pro` (MIT, from
+[twostraws/SwiftUI-Agent-Skill](https://github.com/twostraws/SwiftUI-Agent-Skill)
+at `f2920b6`, only `SKILL.md`, `references/` and `LICENSE`). Update it the same
+way.
+
+It is written for iOS apps on the newest SDKs. Here:
+
+- **This is a macOS app.** Its iPhone, iPad and iPhone Duo guidance
+  (`references/resizability.md`, the iOS toolbars in `references/api.md`) does
+  not apply; window resizing does.
+- **Its "target Swift 6.4" does not apply.** The Swift constraints above win,
+  and its API advice is limited by the macOS 14 deployment target.
+- **AppKit stays where it is.** Three files use it; do not rewrite them in
+  SwiftUI unless that is the task. The skill's "avoid UIKit" is about iOS.
+- **Keep the existing file layout.** `Sources/OpenLens` is already split by
+  feature. Follow its files, not the skill's one-type-per-file rule. A new file
+  also means `xcodegen generate` and a committed project.
+- **The UI is English only.** Do not introduce string catalogs or
+  `Localizable.strings` unless localization is the task.
 
 ## Frames we publish tag only the YCbCr matrix
 
