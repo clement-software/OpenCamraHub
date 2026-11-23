@@ -237,6 +237,112 @@ final class VideoRendererTests: XCTestCase {
         XCTAssertGreaterThan(Int(pixel.r), 60, "the red source should still show through")
     }
 
+    // MARK: - Background
+
+    /// A one-channel mask the size Vision returns at `.fast`: the person fills
+    /// the left half of the source, nobody is on the right.
+    private func makePersonMask() throws -> CVPixelBuffer {
+        let width = 256
+        let height = 192
+        var buffer: CVPixelBuffer?
+        let attributes: [CFString: Any] = [
+            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
+            kCVPixelBufferMetalCompatibilityKey: true,
+        ]
+        XCTAssertEqual(
+            CVPixelBufferCreate(
+                kCFAllocatorDefault,
+                width,
+                height,
+                kCVPixelFormatType_OneComponent8,
+                attributes as CFDictionary,
+                &buffer
+            ),
+            kCVReturnSuccess
+        )
+        let mask = try XCTUnwrap(buffer)
+        CVPixelBufferLockBaseAddress(mask, [])
+        defer { CVPixelBufferUnlockBaseAddress(mask, []) }
+        let base = try XCTUnwrap(CVPixelBufferGetBaseAddress(mask))
+        let stride = CVPixelBufferGetBytesPerRow(mask)
+        for y in 0..<height {
+            let row = base.advanced(by: y * stride).assumingMemoryBound(to: UInt8.self)
+            for x in 0..<width { row[x] = x < width / 2 ? 255 : 0 }
+        }
+        return mask
+    }
+
+    /// Green, so it cannot be mistaken for either half of the source.
+    private func makeBackground() throws -> BackgroundImage {
+        BackgroundImage(
+            texture: try makeOverlay(rect: .zero).texture,
+            pixelSize: CGSize(width: 16, height: 9),
+            outputAspect: 16.0 / 9.0
+        )
+    }
+
+    private func backgroundFrame(
+        _ source: CVPixelBuffer,
+        mirror: Bool = false,
+        mask: CVPixelBuffer?
+    ) throws -> VideoRenderer.Frame {
+        VideoRenderer.Frame(
+            pixelBuffer: source,
+            crop: CGRect(x: 0, y: 0, width: 1, height: 1),
+            mirror: mirror,
+            overlay: nil,
+            background: try makeBackground(),
+            personMask: mask
+        )
+    }
+
+    /// Both source layouts, because a real camera takes the biplanar path and
+    /// the two NV12 shaders blend the background in separately.
+    func testBackgroundReplacesTheCameraWhereTheMaskFindsNobody() throws {
+        for source in [try makeSourceBuffer(), try makeBiplanarSourceBuffer()] {
+            let output = try render(try backgroundFrame(source, mask: try makePersonMask()))
+            assertDominant(\.x, try sample(output, atX: 0.25, y: 0.5))
+            assertDominant(\.y, try sample(output, atX: 0.75, y: 0.5))
+        }
+    }
+
+    /// The mask belongs to the camera image, so mirroring moves the person and
+    /// the background swaps sides with them.
+    func testTheMaskFollowsTheMirror() throws {
+        let output = try render(
+            try backgroundFrame(try makeSourceBuffer(), mirror: true, mask: try makePersonMask())
+        )
+        assertDominant(\.y, try sample(output, atX: 0.25, y: 0.5))
+        assertDominant(\.x, try sample(output, atX: 0.75, y: 0.5))
+    }
+
+    /// Without a mask nobody was found, and the room that was meant to be
+    /// hidden must not show.
+    func testWithoutAMaskTheBackgroundCoversTheWholeFrame() throws {
+        let output = try render(try backgroundFrame(try makeSourceBuffer(), mask: nil))
+        assertDominant(\.y, try sample(output, atX: 0.25, y: 0.5))
+        assertDominant(\.y, try sample(output, atX: 0.75, y: 0.5))
+    }
+
+    func testTheBackgroundFillsTheFrameWithoutStretching() {
+        let output: CGFloat = 16.0 / 9.0
+        let wide = BackgroundImage.visibleRect(
+            pixelSize: CGSize(width: 32, height: 9),
+            outputAspect: output
+        )
+        XCTAssertEqual(wide.width, 0.5, accuracy: 1e-9)
+        XCTAssertEqual(wide.minX, 0.25, accuracy: 1e-9)
+        XCTAssertEqual(wide.height, 1)
+
+        let tall = BackgroundImage.visibleRect(
+            pixelSize: CGSize(width: 4, height: 3),
+            outputAspect: output
+        )
+        XCTAssertEqual(tall.width, 1)
+        XCTAssertEqual(tall.height, 0.75, accuracy: 1e-9)
+        XCTAssertEqual(tall.minY, 0.125, accuracy: 1e-9)
+    }
+
     func testOutputIsNV12SoTheSinkMovesAThirdOfTheBytes() throws {
         let output = try render(
             VideoRenderer.Frame(
