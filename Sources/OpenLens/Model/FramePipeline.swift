@@ -11,6 +11,7 @@ struct FrameSettings {
     var overlayEnabled = false
     var overlayRect = CGRect(x: 0.72, y: 0.72, width: 0.24, height: 0.24)
     var overlayOpacity: Double = 1
+    var backgroundEnabled = false
     var adjustments: ImageAdjustments = .neutral
     var sourceAspect: CGFloat = 16.0 / 9.0
     var wantsOutput = false
@@ -34,6 +35,9 @@ final class FramePipeline: NSObject, @unchecked Sendable {
     private var settings = FrameSettings()
     private var animator = CropAnimator()
     private var overlay: OverlayTexture?
+    private var background: BackgroundImage?
+    /// Only touched from `process`, on the capture queue.
+    private let segmenter = PersonSegmenter()
     private var previewTarget: PreviewRenderTarget?
     private var lastFrameTime: CFTimeInterval = 0
     /// The idle card the virtual camera receives while paused. Built once per
@@ -110,6 +114,23 @@ final class FramePipeline: NSObject, @unchecked Sendable {
         return size
     }
 
+    func setBackground(_ background: BackgroundImage?) {
+        os_unfair_lock_lock(&lock)
+        self.background = background
+        os_unfair_lock_unlock(&lock)
+    }
+
+    func loadBackground(url: URL) throws {
+        let (texture, size) = try OverlayLoader.load(url: url, device: renderer.device)
+        setBackground(
+            BackgroundImage(
+                texture: texture,
+                pixelSize: size,
+                outputAspect: CGFloat(OpenLensOutput.aspectRatio)
+            )
+        )
+    }
+
     // MARK: - Hot path
 
     func process(pixelBuffer: CVPixelBuffer) {
@@ -127,6 +148,7 @@ final class FramePipeline: NSObject, @unchecked Sendable {
         let crop = animator.advance(deltaTime: delta)
         let snapshot = settings
         var frameOverlay = overlay
+        let frameBackground = snapshot.backgroundEnabled ? background : nil
         let preview = previewTarget
         os_unfair_lock_unlock(&lock)
 
@@ -153,7 +175,9 @@ final class FramePipeline: NSObject, @unchecked Sendable {
             ),
             mirror: snapshot.mirror,
             overlay: frameOverlay,
-            adjustments: snapshot.adjustments
+            adjustments: snapshot.adjustments,
+            background: frameBackground,
+            personMask: frameBackground == nil ? nil : segmenter.mask(for: pixelBuffer)
         )
 
         if rendersOutput, let output = renderer.renderToOutputBuffer(frame) {

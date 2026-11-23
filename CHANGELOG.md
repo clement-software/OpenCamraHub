@@ -6,6 +6,16 @@ All notable changes to OpenLens are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Background replacement.** The new **Background** section of the inspector
+  takes an image, and **Replace background** puts it behind you in the selected
+  scene, in the preview and in the call. Vision finds the person on the Mac, so
+  no picture leaves it. The image fills the frame without being stretched, and
+  it is neither zoomed, mirrored nor colour-corrected with the camera. If no
+  person can be found, the image covers the whole frame rather than showing the
+  room. Edges are softer than the rest of the picture, hair especially.
+
 ## [0.4.6] - 2026-09-24
 
 ### Fixed

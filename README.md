@@ -79,6 +79,11 @@ want the product rather than the source. See
   to resize it, double-click to reset the size — or type exact percentages in
   the inspector and snap it to any of nine positions. The aspect ratio comes
   from the image, and it is composited in the same GPU pass.
+- **Background replacement.** Pick an image and switch it on per scene: Vision
+  finds you in each frame, on the Mac, and the image replaces the room behind
+  you. It fills the frame without stretching and is not mirrored with the
+  camera. If nobody can be found, the image covers the whole frame rather than
+  showing the room.
 - **Tone and colour correction** for cameras that have no controls of their own —
   HDMI grabbers like a Cam Link expose none, and macOS offers no manual values
   either. Exposure, black point, white point, midtones and an S-curve contrast,
@@ -455,8 +460,9 @@ preferences file inside its sandbox container:
 ```
 
 It holds your scenes, the selected scene, the lights the app has found or you
-added, which inspector sections are open, and the update setting. An overlay
-image is not copied: the app keeps a bookmark to the file wherever you keep it.
+added, which inspector sections are open, and the update setting. Overlay and
+background images are not copied: the app keeps a bookmark to each file wherever
+you keep it.
 If saved scenes ever cannot be read, the app copies them to
 `scenes.v1.unreadable` in the same preferences before anything else happens.
 

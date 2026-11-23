@@ -8,6 +8,7 @@ import simd
 struct RenderUniforms {
     var cropRect: SIMD4<Float>
     var overlayRect: SIMD4<Float>
+    var backgroundRect: SIMD4<Float>
     var overlayOpacity: Float
     var mirror: Float
     var lumaOffset: Float
@@ -149,6 +150,12 @@ final class VideoRenderer {
         var mirror: Bool
         var overlay: OverlayTexture?
         var adjustments: ImageAdjustments = .neutral
+        /// Replaces the room around the person when set.
+        var background: BackgroundImage?
+        /// Where the person is, from `PersonSegmenter`. Without one, a set
+        /// background covers the whole frame: if the person cannot be found,
+        /// showing the room that was meant to be hidden is the worse failure.
+        var personMask: CVPixelBuffer?
     }
 
     /// Renders into a pooled NV12 buffer destined for the virtual camera.
@@ -309,6 +316,22 @@ final class VideoRenderer {
             sourceTextures = [bgra]
         }
 
+        // Blank means no person anywhere, so the background fills the frame.
+        let mask = frame.personMask.flatMap {
+            makeTexture(from: $0, plane: 0, format: .r8Unorm)
+        }
+
+        // Zero width switches the background off in the shader.
+        var backgroundRect = SIMD4<Float>(0, 0, 0, 0)
+        if let visible = frame.background?.visibleRect {
+            backgroundRect = SIMD4<Float>(
+                Float(visible.origin.x),
+                Float(visible.origin.y),
+                Float(visible.width),
+                Float(visible.height)
+            )
+        }
+
         guard let commandBuffer = commandQueue.makeCommandBuffer() else { return false }
 
         // Video range needs the 16...235 luma window expanded; full range does not.
@@ -328,6 +351,7 @@ final class VideoRenderer {
                     Float($0.rect.height)
                 )
             } ?? SIMD4<Float>(0, 0, 0, 0),
+            backgroundRect: backgroundRect,
             overlayOpacity: Float(frame.overlay?.opacity ?? 0),
             mirror: frame.mirror ? 1 : 0,
             lumaOffset: isFullRange ? 0.0 : 16.0 / 255.0,
@@ -360,6 +384,8 @@ final class VideoRenderer {
                 encoder.setFragmentTexture(texture, index: index)
             }
             encoder.setFragmentTexture(frame.overlay?.texture ?? blankOverlay, index: 2)
+            encoder.setFragmentTexture(frame.background?.texture ?? blankOverlay, index: 3)
+            encoder.setFragmentTexture(mask ?? blankOverlay, index: 4)
             encoder.setVertexBytes(&uniforms, length: MemoryLayout<RenderUniforms>.stride, index: 0)
             encoder.setFragmentBytes(
                 &uniforms, length: MemoryLayout<RenderUniforms>.stride, index: 0

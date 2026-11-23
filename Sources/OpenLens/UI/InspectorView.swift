@@ -24,6 +24,7 @@ struct InspectorView: View {
     @AppStorage("inspector.expanded.colour") private var colourExpanded = true
     @AppStorage("inspector.expanded.lighting") private var lightingExpanded = false
     @AppStorage("inspector.expanded.output") private var outputExpanded = false
+    @AppStorage("inspector.expanded.background") private var backgroundExpanded = false
     @AppStorage("inspector.expanded.splitTone") private var splitToneExpanded = false
 
     init(model: AppModel) {
@@ -316,6 +317,41 @@ struct InspectorView: View {
 
             LightingSection(model: model, isExpanded: $lightingExpanded)
 
+            Section(isExpanded: $backgroundExpanded) {
+                Toggle("Replace background", isOn: backgroundEnabledBinding)
+                    .disabled(scenes.backgroundURL == nil)
+
+                HStack {
+                    Button(scenes.backgroundURL == nil ? "Choose Image…" : "Replace…") {
+                        chooseBackground()
+                    }
+                    if scenes.backgroundURL != nil {
+                        Button("Remove") { model.chooseBackground(url: nil) }
+                    }
+                }
+
+                if let url = scenes.backgroundURL {
+                    Text(url.lastPathComponent)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            } header: {
+                SectionHeader(
+                    "Background",
+                    info: "Replaces everything around you with an image. The Mac finds the "
+                        + "person in each frame with Vision; no picture leaves it. The image "
+                        + "fills the frame without being stretched, and it is neither "
+                        + "zoomed, mirrored nor colour-corrected with the camera. If no "
+                        + "person can be found, the image covers the whole frame rather "
+                        + "than showing the room. Edges are softer than the rest of the "
+                        + "picture, hair especially.",
+                    summary: scenes.selectedScene?.backgroundEnabled == true ? "On" : "Off",
+                    summaryIsActive: scenes.selectedScene?.backgroundEnabled ?? false
+                )
+            }
+
             // The preview switch used to live here too, next to the overlay,
             // because both were about what leaves the app. It has its own
             // button in the scene strip now, beside Pause, where the two kinds
@@ -436,6 +472,14 @@ struct InspectorView: View {
         if panel.runModal() == .OK { model.chooseOverlay(url: panel.url) }
     }
 
+    private func chooseBackground() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        if panel.runModal() == .OK { model.chooseBackground(url: panel.url) }
+    }
+
     // MARK: - Bindings
 
     private func adjustmentBinding(
@@ -479,6 +523,13 @@ struct InspectorView: View {
         Binding(
             get: { scenes.selectedScene?.overlayEnabled ?? false },
             set: { model.setOverlayEnabled($0) }
+        )
+    }
+
+    private var backgroundEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { scenes.selectedScene?.backgroundEnabled ?? false },
+            set: { model.setBackgroundEnabled($0) }
         )
     }
 

@@ -6,6 +6,9 @@ struct RenderUniforms {
     float4 cropRect;
     // Overlay placement in normalized output space.
     float4 overlayRect;
+    // The part of the background image that fills the output, in normalized
+    // texture space. Zero width when there is no background.
+    float4 backgroundRect;
     float  overlayOpacity;
     // 1 when the source should be mirrored horizontally.
     float  mirror;
@@ -84,6 +87,36 @@ static inline float4 overlay_texel(float2 outputCoord,
     }
     constexpr sampler overlaySampler(filter::linear, mip_filter::linear, address::clamp_to_edge);
     return overlayTexture.sample(overlaySampler, ov) * u.overlayOpacity;
+}
+
+// The background colour, and in alpha how much of it replaces the camera.
+//
+// The mask is sampled with the camera's coordinates, so it follows the crop
+// and the mirror for free. The image is sampled in output space, so it is
+// neither zoomed nor mirrored with the camera, and it is applied after the
+// colour correction, which keeps the colours it was made in.
+static inline float4 background_texel(VertexOut in,
+                                      texture2d<float> backgroundTexture,
+                                      texture2d<float> maskTexture,
+                                      constant RenderUniforms &u)
+{
+    if (u.backgroundRect.z <= 0.0) {
+        return float4(0.0);
+    }
+    constexpr sampler backgroundSampler(filter::linear, address::clamp_to_edge);
+    float person = maskTexture.sample(backgroundSampler, in.sourceCoord).r;
+    float2 uv = u.backgroundRect.xy + in.outputCoord * u.backgroundRect.zw;
+    return float4(backgroundTexture.sample(backgroundSampler, uv).rgb, 1.0 - person);
+}
+
+static inline float3 composite_background(float3 rgb,
+                                          VertexOut in,
+                                          texture2d<float> backgroundTexture,
+                                          texture2d<float> maskTexture,
+                                          constant RenderUniforms &u)
+{
+    float4 texel = background_texel(in, backgroundTexture, maskTexture, u);
+    return mix(rgb, texel.rgb, texel.a);
 }
 
 static inline float3 composite_overlay(float3 rgb,
@@ -236,11 +269,15 @@ fragment float openlens_fragment_luma_biplanar(VertexOut in [[stage_in]],
                                                texture2d<float> lumaTexture [[texture(0)]],
                                                texture2d<float> chromaTexture [[texture(1)]],
                                                texture2d<float> overlayTexture [[texture(2)]],
+                                               texture2d<float> backgroundTexture [[texture(3)]],
+                                               texture2d<float> maskTexture [[texture(4)]],
                                                constant RenderUniforms &u [[buffer(0)]])
 {
     constexpr sampler videoSampler(filter::linear, mip_filter::none, address::clamp_to_edge);
     float luma = lumaTexture.sample(videoSampler, in.sourceCoord).r;
     float y = encode_luma(adjust_luma((luma - u.lumaOffset) * u.lumaScale, u));
+    float4 background = background_texel(in, backgroundTexture, maskTexture, u);
+    y = mix(y, encode_luma(rgb_to_luma(background.rgb)), background.a);
 
     float4 texel = overlay_texel(in.outputCoord, overlayTexture, u);
     if (texel.a <= 0.0) { return y; }
@@ -256,6 +293,8 @@ fragment float2 openlens_fragment_chroma_biplanar(VertexOut in [[stage_in]],
                                                   texture2d<float> lumaTexture [[texture(0)]],
                                                   texture2d<float> chromaTexture [[texture(1)]],
                                                   texture2d<float> overlayTexture [[texture(2)]],
+                                                  texture2d<float> backgroundTexture [[texture(3)]],
+                                                  texture2d<float> maskTexture [[texture(4)]],
                                                   constant RenderUniforms &u [[buffer(0)]])
 {
     constexpr sampler videoSampler(filter::linear, mip_filter::none, address::clamp_to_edge);
@@ -265,6 +304,8 @@ fragment float2 openlens_fragment_chroma_biplanar(VertexOut in [[stage_in]],
     float luma = lumaTexture.sample(videoSampler, in.sourceCoord).r;
     float y = adjust_luma((luma - u.lumaOffset) * u.lumaScale, u);
     float2 chroma = adjust_chroma(decode_chroma(chromaTexture.sample(videoSampler, in.sourceCoord).rg, u), y, u);
+    float4 background = background_texel(in, backgroundTexture, maskTexture, u);
+    chroma = mix(chroma, rgb_to_chroma(background.rgb), background.a);
 
     float4 texel = overlay_texel(in.outputCoord, overlayTexture, u);
     if (texel.a <= 0.0) { return encode_chroma(chroma); }
@@ -277,10 +318,13 @@ fragment float2 openlens_fragment_chroma_biplanar(VertexOut in [[stage_in]],
 fragment float openlens_fragment_luma_bgra(VertexOut in [[stage_in]],
                                            texture2d<float> sourceTexture [[texture(0)]],
                                            texture2d<float> overlayTexture [[texture(2)]],
+                                           texture2d<float> backgroundTexture [[texture(3)]],
+                                           texture2d<float> maskTexture [[texture(4)]],
                                            constant RenderUniforms &u [[buffer(0)]])
 {
     constexpr sampler videoSampler(filter::linear, mip_filter::none, address::clamp_to_edge);
     float3 rgb = adjust_rgb(sourceTexture.sample(videoSampler, in.sourceCoord).rgb, u);
+    rgb = composite_background(rgb, in, backgroundTexture, maskTexture, u);
     rgb = composite_overlay(rgb, in.outputCoord, overlayTexture, u);
     return encode_luma(rgb_to_luma(saturate(rgb)));
 }
@@ -288,10 +332,13 @@ fragment float openlens_fragment_luma_bgra(VertexOut in [[stage_in]],
 fragment float2 openlens_fragment_chroma_bgra(VertexOut in [[stage_in]],
                                               texture2d<float> sourceTexture [[texture(0)]],
                                               texture2d<float> overlayTexture [[texture(2)]],
+                                              texture2d<float> backgroundTexture [[texture(3)]],
+                                              texture2d<float> maskTexture [[texture(4)]],
                                               constant RenderUniforms &u [[buffer(0)]])
 {
     constexpr sampler videoSampler(filter::linear, mip_filter::none, address::clamp_to_edge);
     float3 rgb = adjust_rgb(sourceTexture.sample(videoSampler, in.sourceCoord).rgb, u);
+    rgb = composite_background(rgb, in, backgroundTexture, maskTexture, u);
     rgb = composite_overlay(rgb, in.outputCoord, overlayTexture, u);
     return encode_chroma(rgb_to_chroma(saturate(rgb)));
 }
@@ -300,6 +347,8 @@ fragment float4 openlens_fragment_biplanar(VertexOut in [[stage_in]],
                                            texture2d<float> lumaTexture [[texture(0)]],
                                            texture2d<float> chromaTexture [[texture(1)]],
                                            texture2d<float> overlayTexture [[texture(2)]],
+                                           texture2d<float> backgroundTexture [[texture(3)]],
+                                           texture2d<float> maskTexture [[texture(4)]],
                                            constant RenderUniforms &u [[buffer(0)]])
 {
     constexpr sampler videoSampler(filter::linear, mip_filter::none, address::clamp_to_edge);
@@ -309,6 +358,7 @@ fragment float4 openlens_fragment_biplanar(VertexOut in [[stage_in]],
     // so the preview is a faithful match for what the call actually receives.
     float y = adjust_luma((luma - u.lumaOffset) * u.lumaScale, u);
     float3 rgb = ycbcr_to_rgb(y, adjust_chroma(chroma, y, u), 0.0, 1.0);
+    rgb = composite_background(rgb, in, backgroundTexture, maskTexture, u);
     rgb = composite_overlay(rgb, in.outputCoord, overlayTexture, u);
     return float4(saturate(rgb), 1.0);
 }
@@ -316,10 +366,13 @@ fragment float4 openlens_fragment_biplanar(VertexOut in [[stage_in]],
 fragment float4 openlens_fragment_bgra(VertexOut in [[stage_in]],
                                        texture2d<float> sourceTexture [[texture(0)]],
                                        texture2d<float> overlayTexture [[texture(2)]],
+                                       texture2d<float> backgroundTexture [[texture(3)]],
+                                       texture2d<float> maskTexture [[texture(4)]],
                                        constant RenderUniforms &u [[buffer(0)]])
 {
     constexpr sampler videoSampler(filter::linear, mip_filter::none, address::clamp_to_edge);
     float3 rgb = adjust_rgb(sourceTexture.sample(videoSampler, in.sourceCoord).rgb, u);
+    rgb = composite_background(rgb, in, backgroundTexture, maskTexture, u);
     rgb = composite_overlay(rgb, in.outputCoord, overlayTexture, u);
     return float4(saturate(rgb), 1.0);
 }

@@ -137,6 +137,7 @@ final class AppModel: ObservableObject {
         installer.activate()
         extensionClient.connect()
         reloadOverlay()
+        reloadBackground()
         lights.start()
 
         // Only conjure a starter scene when nothing was ever saved. If the
@@ -257,6 +258,7 @@ final class AppModel: ObservableObject {
             $0.overlayEnabled = scene.overlayEnabled
             $0.overlayRect = scene.overlayRect
             $0.overlayOpacity = scene.overlayOpacity
+            $0.backgroundEnabled = scene.backgroundEnabled
             $0.adjustments = scene.adjustments
         }
         // Gliding a crop across a camera change looks like a glitch, so only
@@ -516,6 +518,19 @@ final class AppModel: ObservableObject {
         schedulePersist()
     }
 
+    // MARK: - Background
+
+    func chooseBackground(url: URL?) {
+        scenes.setBackground(url: url)
+        reloadBackground()
+    }
+
+    func setBackgroundEnabled(_ enabled: Bool) {
+        scenes.mutateSelected { $0.backgroundEnabled = enabled }
+        scenes.save()
+        pipeline?.update { $0.backgroundEnabled = enabled }
+    }
+
     // MARK: - Image adjustments
 
     var adjustments: ImageAdjustments { scenes.selectedScene?.adjustments ?? .neutral }
@@ -608,6 +623,20 @@ final class AppModel: ObservableObject {
             }
         } catch {
             errorMessage = "Could not load the overlay image."
+        }
+    }
+
+    private func reloadBackground() {
+        guard let pipeline else { return }
+        guard let url = scenes.backgroundURL else {
+            pipeline.setBackground(nil)
+            return
+        }
+        do {
+            try pipeline.loadBackground(url: url)
+        } catch {
+            pipeline.setBackground(nil)
+            errorMessage = "Could not load the background image."
         }
     }
 
