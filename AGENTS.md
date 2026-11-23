@@ -38,9 +38,10 @@ underscores, doc comments that match their parameters, no `try!`. Review
 covers the rest. There is no SwiftLint: its rules overlap `swift-format`'s,
 and it would be a second tool to install on every runner.
 
-Because `.swift-format` has a `rules` block, swift-format runs **only the rules
-listed there as `true`**; it does not fill in defaults for the rest. To enable
-a rule, add it with `true`, and check first that lint is still clean.
+`.swift-format` lists every rule, on or off, because with a `rules` block
+swift-format runs **only the rules listed there as `true`** and does not fill in
+defaults. A rule that a newer swift-format introduces therefore stays off until
+it is added here.
 
 ## Forbidden and high-risk operations
 

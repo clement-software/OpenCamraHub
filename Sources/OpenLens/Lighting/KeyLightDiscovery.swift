@@ -105,7 +105,7 @@ final class KeyLightDiscovery {
         retryDelay = Self.firstRetryDelay
         browser?.cancel()
         browser = nil
-        resolvers.values.forEach { $0.cancel() }
+        for resolver in resolvers.values { resolver.cancel() }
         resolvers.removeAll()
         onStateChange?(false)
     }

@@ -641,13 +641,15 @@ struct AdjustmentSlider: View {
                     .id(fieldRevision)
                     .focused($isEditing)
                     .onSubmit {
-                        commitText(); isEditing = false
+                        commitText()
+                        isEditing = false
                     }
                     .onChange(of: isEditing) { _, editing in
                         if !editing { commitText() }
                     }
                     .onExitCommand {
-                        editingText = nil; isEditing = false
+                        editingText = nil
+                        isEditing = false
                     }
                     .multilineTextAlignment(.trailing)
                     .monospacedDigit()
