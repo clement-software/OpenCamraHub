@@ -278,6 +278,7 @@ final class AppModel: ObservableObject {
             $0.overlayRect = scene.overlayRect
             $0.overlayOpacity = scene.overlayOpacity
             $0.backgroundEnabled = scene.backgroundEnabled
+            $0.backgroundBlurEnabled = scene.backgroundBlurEnabled
             $0.adjustments = scene.adjustments
         }
         // Gliding a crop across a camera change looks like a glitch, so only
@@ -544,10 +545,31 @@ final class AppModel: ObservableObject {
         reloadBackground()
     }
 
+    /// Replacing and blurring are alternatives: switching one on switches the
+    /// other off, so neither switch ever appears to do nothing.
     func setBackgroundEnabled(_ enabled: Bool) {
-        scenes.mutateSelected { $0.backgroundEnabled = enabled }
+        scenes.mutateSelected {
+            $0.backgroundEnabled = enabled
+            if enabled { $0.backgroundBlurEnabled = false }
+        }
+        applyBackground()
+    }
+
+    func setBackgroundBlurEnabled(_ enabled: Bool) {
+        scenes.mutateSelected {
+            $0.backgroundBlurEnabled = enabled
+            if enabled { $0.backgroundEnabled = false }
+        }
+        applyBackground()
+    }
+
+    private func applyBackground() {
         scenes.save()
-        pipeline?.update { $0.backgroundEnabled = enabled }
+        guard let scene = scenes.selectedScene else { return }
+        pipeline?.update {
+            $0.backgroundEnabled = scene.backgroundEnabled
+            $0.backgroundBlurEnabled = scene.backgroundBlurEnabled
+        }
     }
 
     // MARK: - Image adjustments

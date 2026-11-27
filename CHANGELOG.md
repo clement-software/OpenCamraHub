@@ -15,6 +15,13 @@ All notable changes to OpenLens are documented here. The format follows
   it is neither zoomed, mirrored nor colour-corrected with the camera. If no
   person can be found, the image covers the whole frame rather than showing the
   room.
+- **Background blur.** **Blur background**, in the same section, softens the
+  room behind you in the selected scene instead of replacing it, as strongly
+  as the **Blur** slider beneath it says. The blur is
+  made from the camera's own picture, so it is zoomed, mirrored and
+  colour-corrected with you. Blurring and replacing are alternatives:
+  switching one on switches the other off. If no person can be found, the
+  whole frame is blurred.
 - **Cut-out settings**, under the background, for every scene at once. They are
   there to fix an edge that looks blocky:
   - **Quality** (Fast, Balanced, Accurate) chooses Vision's model.

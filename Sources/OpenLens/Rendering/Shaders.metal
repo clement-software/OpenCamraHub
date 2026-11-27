@@ -38,6 +38,8 @@ struct RenderUniforms {
     float  maskSpatialFactor;
     float  maskRangeFactor;
     float  maskShrink;
+    // 1 when the room behind the person is blurred.
+    float  blurBackground;
 };
 
 struct VertexOut {
@@ -171,6 +173,37 @@ static inline float4 background_texel(VertexOut in,
 
 constant float3 kLumaPlaneWeights = float3(1.0, 0.0, 0.0);
 constant float3 kRGBLumaWeights = float3(0.299, 0.587, 0.114);
+
+// How much of this pixel stays sharp: all of it unless the background is
+// blurred, and none of it where nobody was found, so a missing mask blurs the
+// whole room rather than showing it.
+static inline float sharpness(VertexOut in,
+                              texture2d<float> maskTexture,
+                              texture2d<float> guideTexture,
+                              float3 guideWeights,
+                              constant RenderUniforms &u)
+{
+    return u.blurBackground > 0.5 ? person_alpha(in, maskTexture, guideTexture, guideWeights, u) : 1.0;
+}
+
+// The camera at `coord`, blurred where `sharp` is below 1.
+//
+// `blurred` holds the same plane, but only the part on screen, shrunk and
+// blurred by VideoRenderer before this pass.
+static inline float4 camera_texel(texture2d<float> source,
+                                  texture2d<float> blurred,
+                                  float2 coord,
+                                  float sharp,
+                                  constant RenderUniforms &u)
+{
+    constexpr sampler videoSampler(filter::linear, mip_filter::none, address::clamp_to_edge);
+    float4 texel = source.sample(videoSampler, coord);
+    if (sharp >= 1.0) {
+        return texel;
+    }
+    float2 visible = (coord - u.cropRect.xy) / u.cropRect.zw;
+    return mix(blurred.sample(videoSampler, visible), texel, sharp);
+}
 
 static inline float3 composite_background(float3 rgb,
                                           VertexOut in,
@@ -336,10 +369,11 @@ fragment float openlens_fragment_luma_biplanar(VertexOut in [[stage_in]],
                                                texture2d<float> overlayTexture [[texture(2)]],
                                                texture2d<float> backgroundTexture [[texture(3)]],
                                                texture2d<float> maskTexture [[texture(4)]],
+                                               texture2d<float> lumaBlur [[texture(5)]],
                                                constant RenderUniforms &u [[buffer(0)]])
 {
-    constexpr sampler videoSampler(filter::linear, mip_filter::none, address::clamp_to_edge);
-    float luma = lumaTexture.sample(videoSampler, in.sourceCoord).r;
+    float sharp = sharpness(in, maskTexture, lumaTexture, kLumaPlaneWeights, u);
+    float luma = camera_texel(lumaTexture, lumaBlur, in.sourceCoord, sharp, u).r;
     float y = encode_luma(adjust_luma((luma - u.lumaOffset) * u.lumaScale, u));
     float4 background = background_texel(in, backgroundTexture, maskTexture, lumaTexture, kLumaPlaneWeights, u);
     y = mix(y, encode_luma(rgb_to_luma(background.rgb)), background.a);
@@ -360,15 +394,17 @@ fragment float2 openlens_fragment_chroma_biplanar(VertexOut in [[stage_in]],
                                                   texture2d<float> overlayTexture [[texture(2)]],
                                                   texture2d<float> backgroundTexture [[texture(3)]],
                                                   texture2d<float> maskTexture [[texture(4)]],
+                                                  texture2d<float> lumaBlur [[texture(5)]],
+                                                  texture2d<float> chromaBlur [[texture(6)]],
                                                   constant RenderUniforms &u [[buffer(0)]])
 {
-    constexpr sampler videoSampler(filter::linear, mip_filter::none, address::clamp_to_edge);
     // The tint zones are keyed off brightness, so the chroma pass has to know
     // the luma at this pixel. Chroma is quarter resolution, which is why this
     // second read is affordable.
-    float luma = lumaTexture.sample(videoSampler, in.sourceCoord).r;
+    float sharp = sharpness(in, maskTexture, lumaTexture, kLumaPlaneWeights, u);
+    float luma = camera_texel(lumaTexture, lumaBlur, in.sourceCoord, sharp, u).r;
     float y = adjust_luma((luma - u.lumaOffset) * u.lumaScale, u);
-    float2 chroma = adjust_chroma(decode_chroma(chromaTexture.sample(videoSampler, in.sourceCoord).rg, u), y, u);
+    float2 chroma = adjust_chroma(decode_chroma(camera_texel(chromaTexture, chromaBlur, in.sourceCoord, sharp, u).rg, u), y, u);
     float4 background = background_texel(in, backgroundTexture, maskTexture, lumaTexture, kLumaPlaneWeights, u);
     chroma = mix(chroma, rgb_to_chroma(background.rgb), background.a);
 
@@ -385,10 +421,11 @@ fragment float openlens_fragment_luma_bgra(VertexOut in [[stage_in]],
                                            texture2d<float> overlayTexture [[texture(2)]],
                                            texture2d<float> backgroundTexture [[texture(3)]],
                                            texture2d<float> maskTexture [[texture(4)]],
+                                           texture2d<float> sourceBlur [[texture(5)]],
                                            constant RenderUniforms &u [[buffer(0)]])
 {
-    constexpr sampler videoSampler(filter::linear, mip_filter::none, address::clamp_to_edge);
-    float3 rgb = adjust_rgb(sourceTexture.sample(videoSampler, in.sourceCoord).rgb, u);
+    float sharp = sharpness(in, maskTexture, sourceTexture, kRGBLumaWeights, u);
+    float3 rgb = adjust_rgb(camera_texel(sourceTexture, sourceBlur, in.sourceCoord, sharp, u).rgb, u);
     rgb = composite_background(rgb, in, backgroundTexture, maskTexture, sourceTexture, kRGBLumaWeights, u);
     rgb = composite_overlay(rgb, in.outputCoord, overlayTexture, u);
     return encode_luma(rgb_to_luma(saturate(rgb)));
@@ -399,10 +436,11 @@ fragment float2 openlens_fragment_chroma_bgra(VertexOut in [[stage_in]],
                                               texture2d<float> overlayTexture [[texture(2)]],
                                               texture2d<float> backgroundTexture [[texture(3)]],
                                               texture2d<float> maskTexture [[texture(4)]],
+                                              texture2d<float> sourceBlur [[texture(5)]],
                                               constant RenderUniforms &u [[buffer(0)]])
 {
-    constexpr sampler videoSampler(filter::linear, mip_filter::none, address::clamp_to_edge);
-    float3 rgb = adjust_rgb(sourceTexture.sample(videoSampler, in.sourceCoord).rgb, u);
+    float sharp = sharpness(in, maskTexture, sourceTexture, kRGBLumaWeights, u);
+    float3 rgb = adjust_rgb(camera_texel(sourceTexture, sourceBlur, in.sourceCoord, sharp, u).rgb, u);
     rgb = composite_background(rgb, in, backgroundTexture, maskTexture, sourceTexture, kRGBLumaWeights, u);
     rgb = composite_overlay(rgb, in.outputCoord, overlayTexture, u);
     return encode_chroma(rgb_to_chroma(saturate(rgb)));
@@ -414,11 +452,13 @@ fragment float4 openlens_fragment_biplanar(VertexOut in [[stage_in]],
                                            texture2d<float> overlayTexture [[texture(2)]],
                                            texture2d<float> backgroundTexture [[texture(3)]],
                                            texture2d<float> maskTexture [[texture(4)]],
+                                           texture2d<float> lumaBlur [[texture(5)]],
+                                           texture2d<float> chromaBlur [[texture(6)]],
                                            constant RenderUniforms &u [[buffer(0)]])
 {
-    constexpr sampler videoSampler(filter::linear, mip_filter::none, address::clamp_to_edge);
-    float luma = lumaTexture.sample(videoSampler, in.sourceCoord).r;
-    float2 chroma = decode_chroma(chromaTexture.sample(videoSampler, in.sourceCoord).rg, u);
+    float sharp = sharpness(in, maskTexture, lumaTexture, kLumaPlaneWeights, u);
+    float luma = camera_texel(lumaTexture, lumaBlur, in.sourceCoord, sharp, u).r;
+    float2 chroma = decode_chroma(camera_texel(chromaTexture, chromaBlur, in.sourceCoord, sharp, u).rg, u);
     // Graded in YCbCr and only then converted, exactly as the NV12 path does,
     // so the preview is a faithful match for what the call actually receives.
     float y = adjust_luma((luma - u.lumaOffset) * u.lumaScale, u);
@@ -433,10 +473,11 @@ fragment float4 openlens_fragment_bgra(VertexOut in [[stage_in]],
                                        texture2d<float> overlayTexture [[texture(2)]],
                                        texture2d<float> backgroundTexture [[texture(3)]],
                                        texture2d<float> maskTexture [[texture(4)]],
+                                       texture2d<float> sourceBlur [[texture(5)]],
                                        constant RenderUniforms &u [[buffer(0)]])
 {
-    constexpr sampler videoSampler(filter::linear, mip_filter::none, address::clamp_to_edge);
-    float3 rgb = adjust_rgb(sourceTexture.sample(videoSampler, in.sourceCoord).rgb, u);
+    float sharp = sharpness(in, maskTexture, sourceTexture, kRGBLumaWeights, u);
+    float3 rgb = adjust_rgb(camera_texel(sourceTexture, sourceBlur, in.sourceCoord, sharp, u).rgb, u);
     rgb = composite_background(rgb, in, backgroundTexture, maskTexture, sourceTexture, kRGBLumaWeights, u);
     rgb = composite_overlay(rgb, in.outputCoord, overlayTexture, u);
     return float4(saturate(rgb), 1.0);

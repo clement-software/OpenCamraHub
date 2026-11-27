@@ -399,6 +399,67 @@ final class VideoRendererTests: XCTestCase {
         )
     }
 
+    private func blurFrame(
+        _ source: CVPixelBuffer,
+        mask: PersonMask?,
+        matte: MatteSettings = .standard
+    ) -> VideoRenderer.Frame {
+        VideoRenderer.Frame(
+            pixelBuffer: source,
+            crop: CGRect(x: 0, y: 0, width: 1, height: 1),
+            mirror: false,
+            overlay: nil,
+            personMask: mask,
+            matte: matte,
+            blurBackground: true
+        )
+    }
+
+    /// 6 % of the width right of the red half, a light blur stays blue and a
+    /// strong one carries the red that far.
+    func testTheBlurSliderSetsHowFarTheRoomIsSmeared() throws {
+        let light = try sample(
+            try render(blurFrame(try makeSourceBuffer(), mask: nil, matte: MatteSettings(blur: 0))),
+            atX: 0.56,
+            y: 0.5
+        )
+        let strong = try sample(
+            try render(blurFrame(try makeSourceBuffer(), mask: nil, matte: MatteSettings(blur: 1))),
+            atX: 0.56,
+            y: 0.5
+        )
+        XCTAssertLessThan(Int(light.r), 8)
+        XCTAssertGreaterThan(Int(strong.r), 20)
+    }
+
+    /// The person fills the red left half. Just right of the edge the blurred
+    /// room picks up their red; just left of it they stay sharp, with no blue
+    /// from the room. Both source layouts, because each blurs its own planes.
+    func testBlurSoftensTheRoomButNotThePerson() throws {
+        for source in [try makeSourceBuffer(), try makeBiplanarSourceBuffer()] {
+            let output = try render(blurFrame(source, mask: try makePersonMask()))
+            XCTAssertGreaterThan(Int(try sample(output, atX: 0.505, y: 0.5).r), 40)
+            XCTAssertLessThan(Int(try sample(output, atX: 0.495, y: 0.5).b), 15)
+        }
+    }
+
+    /// Without a mask nobody was found, so the whole frame is blurred rather
+    /// than showing the room sharp.
+    func testWithoutAMaskTheBlurCoversTheWholeFrame() throws {
+        let output = try render(blurFrame(try makeSourceBuffer(), mask: nil))
+        XCTAssertGreaterThan(Int(try sample(output, atX: 0.495, y: 0.5).b), 40)
+    }
+
+    /// The blurred room is made from the part of the camera on screen, here
+    /// its blue right half, and lands where that part is shown.
+    func testTheBlurFollowsTheCrop() throws {
+        var frame = blurFrame(try makeSourceBuffer(), mask: nil)
+        frame.crop = CGRect(x: 0.5, y: 0, width: 0.5, height: 1)
+        let output = try render(frame)
+        assertDominant(\.z, try sample(output, atX: 0.25, y: 0.5))
+        assertDominant(\.z, try sample(output, atX: 0.75, y: 0.5))
+    }
+
     func testTheBackgroundFillsTheFrameWithoutStretching() {
         let output: CGFloat = 16.0 / 9.0
         let wide = BackgroundImage.visibleRect(

@@ -1,6 +1,7 @@
 import CoreVideo
 import Foundation
 import Metal
+import MetalPerformanceShaders
 import QuartzCore
 import simd
 
@@ -29,6 +30,7 @@ struct RenderUniforms {
     var maskSpatialFactor: Float
     var maskRangeFactor: Float
     var maskShrink: Float
+    var blurBackground: Float
 }
 
 /// The whole image pipeline: one Metal pass that crops, scales and composites.
@@ -58,6 +60,14 @@ final class VideoRenderer {
     private let textureCache: CVMetalTextureCache
     private let blankOverlay: MTLTexture
 
+    private var blurPlanes: [BlurPlane] = []
+    /// Lanczos rather than bilinear: shrinking a 4K frame tenfold with four
+    /// taps per pixel would alias, and the blur would shimmer as you move.
+    private lazy var downscale: MPSImageLanczosScale = {
+        let kernel = MPSImageLanczosScale(device: device)
+        kernel.edgeMode = .clamp
+        return kernel
+    }()
     private var outputPool: CVPixelBufferPool?
     private var outputPoolSize = CGSize.zero
 
@@ -161,7 +171,15 @@ final class VideoRenderer {
         /// showing the room that was meant to be hidden is the worse failure.
         var personMask: PersonMask?
         var matte: MatteSettings = .standard
+        /// Blurs the room around the person, or the whole frame without a
+        /// mask. It is the camera's own picture, so it is zoomed, mirrored
+        /// and colour-corrected with the person.
+        var blurBackground = false
     }
+
+    /// The visible part of the camera is shrunk to this width before it is
+    /// blurred: a strong blur then costs next to nothing, and loses nothing.
+    static let blurWidth = 384
 
     /// Renders into a pooled NV12 buffer destined for the virtual camera.
     func renderToOutputBuffer(_ frame: Frame) -> CVPixelBuffer? {
@@ -347,6 +365,27 @@ final class VideoRenderer {
 
         guard let commandBuffer = commandQueue.makeCommandBuffer() else { return false }
 
+        // Each source plane's visible part is shrunk and blurred before the
+        // render passes, which then read one texel of it per pixel.
+        //
+        // ponytail: the room is blurred together with the person, so a faint
+        // halo of the person's colours surrounds them; a blur that leaves the
+        // person out would need the mask on this side of the render pass.
+        var blurTextures: [MTLTexture] = []
+        if frame.blurBackground {
+            guard let planes = blurPlanes(like: sourceTextures) else { return false }
+            for (source, plane) in zip(sourceTextures, planes) {
+                encodeBlur(
+                    of: source,
+                    crop: frame.crop,
+                    sigma: frame.matte.blurFraction,
+                    into: plane,
+                    commandBuffer: commandBuffer
+                )
+            }
+            blurTextures = planes.map(\.blurred)
+        }
+
         // Video range needs the 16...235 luma window expanded; full range does not.
         let isFullRange = pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
         var uniforms = RenderUniforms(
@@ -384,7 +423,8 @@ final class VideoRenderer {
             highlightShift: Float(frame.adjustments.highlightShift),
             maskSpatialFactor: frame.matte.spatialFactor,
             maskRangeFactor: frame.matte.rangeFactor,
-            maskShrink: Float(frame.matte.shrink)
+            maskShrink: Float(frame.matte.shrink),
+            blurBackground: blurTextures.isEmpty ? 0 : 1
         )
 
         for pass in passes {
@@ -403,6 +443,10 @@ final class VideoRenderer {
             encoder.setFragmentTexture(frame.overlay?.texture ?? blankOverlay, index: 2)
             encoder.setFragmentTexture(frame.background?.texture ?? blankOverlay, index: 3)
             encoder.setFragmentTexture(mask ?? blankOverlay, index: 4)
+            for index in sourceTextures.indices {
+                let blurred = index < blurTextures.count ? blurTextures[index] : blankOverlay
+                encoder.setFragmentTexture(blurred, index: 5 + index)
+            }
             encoder.setVertexBytes(&uniforms, length: MemoryLayout<RenderUniforms>.stride, index: 0)
             encoder.setFragmentBytes(
                 &uniforms, length: MemoryLayout<RenderUniforms>.stride, index: 0
@@ -458,6 +502,85 @@ final class VideoRenderer {
         else { return nil }
         inFlightTextures.append(textureRef)
         return texture
+    }
+
+    /// A source plane's visible part, shrunk into `scaled` and blurred into
+    /// `blurred` by `gaussian`, which is replaced when the blur changes.
+    private final class BlurPlane {
+        let format: MTLPixelFormat
+        let scaled: MTLTexture
+        let blurred: MTLTexture
+        var gaussian: MPSImageGaussianBlur?
+
+        init(format: MTLPixelFormat, scaled: MTLTexture, blurred: MTLTexture) {
+            self.format = format
+            self.scaled = scaled
+            self.blurred = blurred
+        }
+    }
+
+    /// One `BlurPlane` per source plane, rebuilt when the camera's format
+    /// changes. The chroma plane is half as wide.
+    private func blurPlanes(like sources: [MTLTexture]) -> [BlurPlane]? {
+        if blurPlanes.map(\.format) != sources.map(\.pixelFormat) {
+            blurPlanes = []
+            for source in sources {
+                let width = Self.blurWidth * source.width / max(sources[0].width, 1)
+                let height = width * OpenLensOutput.height / OpenLensOutput.width
+                // BGRA is written as RGBA: the channels keep their meaning and
+                // every GPU can write the format.
+                let format = source.pixelFormat == .bgra8Unorm ? .rgba8Unorm : source.pixelFormat
+                let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+                    pixelFormat: format, width: width, height: height, mipmapped: false
+                )
+                descriptor.usage = [.shaderRead, .shaderWrite]
+                descriptor.storageMode = .private
+                guard let scaled = device.makeTexture(descriptor: descriptor),
+                    let blurred = device.makeTexture(descriptor: descriptor)
+                else {
+                    blurPlanes = []
+                    return nil
+                }
+                blurPlanes.append(BlurPlane(format: source.pixelFormat, scaled: scaled, blurred: blurred))
+            }
+        }
+        return blurPlanes
+    }
+
+    /// Shrinks `crop` of `source` into the plane and blurs it with a sigma of
+    /// `sigma` times the visible width, so the blur looks the same at every
+    /// zoom, camera resolution and plane size.
+    private func encodeBlur(
+        of source: MTLTexture,
+        crop: CGRect,
+        sigma: Double,
+        into plane: BlurPlane,
+        commandBuffer: MTLCommandBuffer
+    ) {
+        let pixels = Float(sigma * Double(plane.scaled.width))
+        if plane.gaussian?.sigma != pixels {
+            let gaussian = MPSImageGaussianBlur(device: device, sigma: pixels)
+            gaussian.edgeMode = .clamp
+            plane.gaussian = gaussian
+        }
+        let scaleX = Double(plane.scaled.width) / (crop.width * Double(source.width))
+        let scaleY = Double(plane.scaled.height) / (crop.height * Double(source.height))
+        var transform = MPSScaleTransform(
+            scaleX: scaleX,
+            scaleY: scaleY,
+            translateX: -crop.minX * Double(source.width) * scaleX,
+            translateY: -crop.minY * Double(source.height) * scaleY
+        )
+        withUnsafePointer(to: &transform) { transform in
+            downscale.scaleTransform = transform
+            downscale.encode(
+                commandBuffer: commandBuffer, sourceTexture: source, destinationTexture: plane.scaled
+            )
+        }
+        downscale.scaleTransform = nil
+        plane.gaussian?.encode(
+            commandBuffer: commandBuffer, sourceTexture: plane.scaled, destinationTexture: plane.blurred
+        )
     }
 
     private func pool(for size: CGSize) -> CVPixelBufferPool? {

@@ -76,9 +76,17 @@ struct CameraScene: Identifiable, Codable, Equatable {
     /// background replacement existed have no such key.
     private var storedBackgroundEnabled: Bool?
 
+    /// Optional for the same reason as `storedBackgroundEnabled`.
+    private var storedBackgroundBlurEnabled: Bool?
+
     var backgroundEnabled: Bool {
         get { storedBackgroundEnabled ?? false }
         set { storedBackgroundEnabled = newValue }
+    }
+
+    var backgroundBlurEnabled: Bool {
+        get { storedBackgroundBlurEnabled ?? false }
+        set { storedBackgroundBlurEnabled = newValue }
     }
 
     var adjustments: ImageAdjustments {
@@ -97,6 +105,7 @@ struct CameraScene: Identifiable, Codable, Equatable {
         case storedAdjustments = "adjustments"
         case storedLighting = "lighting"
         case storedBackgroundEnabled = "backgroundEnabled"
+        case storedBackgroundBlurEnabled = "backgroundBlurEnabled"
     }
 
     /// Spelled out because the private stored property above would otherwise
@@ -113,6 +122,7 @@ struct CameraScene: Identifiable, Codable, Equatable {
         overlayRect: CGRect = CGRect(x: 0.72, y: 0.72, width: 0.24, height: 0.24),
         overlayOpacity: Double = 1.0,
         backgroundEnabled: Bool = false,
+        backgroundBlurEnabled: Bool = false,
         adjustments: ImageAdjustments = .neutral,
         lighting: SceneLighting = .off
     ) {
@@ -127,6 +137,7 @@ struct CameraScene: Identifiable, Codable, Equatable {
         self.overlayRect = overlayRect
         self.overlayOpacity = overlayOpacity
         self.storedBackgroundEnabled = backgroundEnabled
+        self.storedBackgroundBlurEnabled = backgroundBlurEnabled
         self.storedAdjustments = adjustments
         self.storedLighting = lighting
     }
