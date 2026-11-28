@@ -62,6 +62,9 @@ final class AppModel: ObservableObject {
     private var lastFrameActivity = Date.distantPast
     private var healthTimer: Timer?
     private var freezeTimer: Timer?
+    /// Whether the last reconcile started the camera; a video background plays
+    /// only then.
+    private var isCameraNeeded = false
     /// What the scene's lamps were doing when the pause began, so resuming can
     /// put them back. Deliberately not persisted: an app that quit while paused
     /// should not reach out and change the lights on the next launch.
@@ -585,6 +588,14 @@ final class AppModel: ObservableObject {
             $0.backgroundEnabled = scene.backgroundEnabled
             $0.backgroundBlurEnabled = scene.backgroundBlurEnabled
         }
+        updateBackgroundPlayback()
+    }
+
+    /// A video background plays only while its picture is in use, so a
+    /// loaded video costs nothing while the camera is off.
+    private func updateBackgroundPlayback(scene: CameraScene? = nil) {
+        let scene = scene ?? scenes.selectedScene
+        pipeline?.setBackgroundPlaying(isCameraNeeded && scene?.backgroundEnabled == true)
     }
 
     // MARK: - Image adjustments
@@ -690,9 +701,10 @@ final class AppModel: ObservableObject {
         }
         do {
             try pipeline.loadBackground(url: url)
+            updateBackgroundPlayback()
         } catch {
             pipeline.setBackground(nil)
-            errorMessage = "Could not load the background image."
+            errorMessage = "Could not load the background image or video."
         }
     }
 
@@ -730,6 +742,8 @@ final class AppModel: ObservableObject {
         } else {
             capture.stop()
         }
+        isCameraNeeded = needsCamera
+        updateBackgroundPlayback(scene: sceneOverride)
 
         updateFreezeTimer(streaming: streaming)
     }

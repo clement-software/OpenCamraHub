@@ -3,6 +3,7 @@ import Foundation
 import Metal
 import os.lock
 import QuartzCore
+import UniformTypeIdentifiers
 
 /// Everything the render path needs, kept behind one lock.
 struct FrameSettings {
@@ -39,6 +40,9 @@ final class FramePipeline: NSObject, @unchecked Sendable {
     private var animator = CropAnimator()
     private var overlay: OverlayTexture?
     private var background: BackgroundImage?
+    /// Set when the background is a video; `background` then holds its
+    /// first frame.
+    private var backgroundVideo: BackgroundVideo?
     /// Only touched on `segmentationQueue`.
     private let segmenter = PersonSegmenter()
     /// Vision takes 25 ms per 4K frame at its fastest and 140 ms at its best,
@@ -128,21 +132,35 @@ final class FramePipeline: NSObject, @unchecked Sendable {
         return size
     }
 
-    func setBackground(_ background: BackgroundImage?) {
+    func setBackground(_ background: BackgroundImage?, video: BackgroundVideo? = nil) {
         os_unfair_lock_lock(&lock)
         self.background = background
+        backgroundVideo = video
         os_unfair_lock_unlock(&lock)
     }
 
+    /// Loads an image, or a video that starts paused.
     func loadBackground(url: URL) throws {
-        let (texture, size) = try OverlayLoader.load(url: url, device: renderer.device)
+        let isVideo = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType?.conforms(to: .movie)
+        let video = isVideo == true ? try BackgroundVideo(url: url) : nil
+        let (texture, size) =
+            try video.map { try OverlayLoader.load(image: $0.poster, device: renderer.device) }
+            ?? OverlayLoader.load(url: url, device: renderer.device)
         setBackground(
             BackgroundImage(
                 texture: texture,
                 pixelSize: size,
                 outputAspect: CGFloat(OpenLensOutput.aspectRatio)
-            )
+            ),
+            video: video
         )
+    }
+
+    func setBackgroundPlaying(_ playing: Bool) {
+        os_unfair_lock_lock(&lock)
+        let video = backgroundVideo
+        os_unfair_lock_unlock(&lock)
+        video?.setPlaying(playing)
     }
 
     // MARK: - Hot path
@@ -162,9 +180,15 @@ final class FramePipeline: NSObject, @unchecked Sendable {
         let crop = animator.advance(deltaTime: delta)
         let snapshot = settings
         var frameOverlay = overlay
-        let frameBackground = snapshot.backgroundEnabled ? background : nil
+        var frameBackground = snapshot.backgroundEnabled ? background : nil
+        let video = snapshot.backgroundEnabled ? backgroundVideo : nil
         let preview = previewTarget
         os_unfair_lock_unlock(&lock)
+
+        if let frame = video?.currentFrame() {
+            frameBackground = BackgroundImage(
+                pixelBuffer: frame, outputAspect: CGFloat(OpenLensOutput.aspectRatio))
+        }
 
         // A pause swaps in the idle card, so there is nothing to render for the
         // extension: the card is sent by `setPaused` and repeated by the pause

@@ -79,7 +79,8 @@ want the product rather than the source. See
   to resize it, double-click to reset the size — or type exact percentages in
   the inspector and snap it to any of nine positions. The aspect ratio comes
   from the image, and it is composited in the same GPU pass.
-- **Background replacement.** Pick an image and switch it on per scene: Vision
+- **Background replacement.** Pick an image, or a video that loops silently,
+  and switch it on per scene: Vision
   finds you in each frame, on the Mac, and the image replaces the room behind
   you. It fills the frame without stretching and is not mirrored with the
   camera. If nobody can be found, the image covers the whole frame rather than
