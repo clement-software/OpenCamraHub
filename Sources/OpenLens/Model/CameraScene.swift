@@ -79,6 +79,9 @@ struct CameraScene: Identifiable, Codable, Equatable {
     /// Optional for the same reason as `storedBackgroundEnabled`.
     private var storedBackgroundBlurEnabled: Bool?
 
+    /// Optional for the same reason as `storedBackgroundEnabled`.
+    private var storedCameraScale: Double?
+
     var backgroundEnabled: Bool {
         get { storedBackgroundEnabled ?? false }
         set { storedBackgroundEnabled = newValue }
@@ -87,6 +90,13 @@ struct CameraScene: Identifiable, Codable, Equatable {
     var backgroundBlurEnabled: Bool {
         get { storedBackgroundBlurEnabled ?? false }
         set { storedBackgroundBlurEnabled = newValue }
+    }
+
+    /// How large the camera picture is in front of a background image, 1 for
+    /// the whole frame.
+    var cameraScale: Double {
+        get { storedCameraScale ?? 1 }
+        set { storedCameraScale = newValue }
     }
 
     var adjustments: ImageAdjustments {
@@ -106,6 +116,7 @@ struct CameraScene: Identifiable, Codable, Equatable {
         case storedLighting = "lighting"
         case storedBackgroundEnabled = "backgroundEnabled"
         case storedBackgroundBlurEnabled = "backgroundBlurEnabled"
+        case storedCameraScale = "cameraScale"
     }
 
     /// Spelled out because the private stored property above would otherwise
@@ -123,6 +134,7 @@ struct CameraScene: Identifiable, Codable, Equatable {
         overlayOpacity: Double = 1.0,
         backgroundEnabled: Bool = false,
         backgroundBlurEnabled: Bool = false,
+        cameraScale: Double = 1,
         adjustments: ImageAdjustments = .neutral,
         lighting: SceneLighting = .off
     ) {
@@ -138,6 +150,7 @@ struct CameraScene: Identifiable, Codable, Equatable {
         self.overlayOpacity = overlayOpacity
         self.storedBackgroundEnabled = backgroundEnabled
         self.storedBackgroundBlurEnabled = backgroundBlurEnabled
+        self.storedCameraScale = cameraScale
         self.storedAdjustments = adjustments
         self.storedLighting = lighting
     }

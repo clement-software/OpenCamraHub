@@ -13,6 +13,7 @@ struct FrameSettings {
     var overlayOpacity: Double = 1
     var backgroundEnabled = false
     var backgroundBlurEnabled = false
+    var cameraScale: Double = 1
     var matte: MatteSettings = .standard
     var adjustments: ImageAdjustments = .neutral
     var sourceAspect: CGFloat = 16.0 / 9.0
@@ -192,6 +193,9 @@ final class FramePipeline: NSObject, @unchecked Sendable {
             overlay: frameOverlay,
             adjustments: snapshot.adjustments,
             background: frameBackground,
+            cameraRect: frameBackground == nil
+                ? CGRect(x: 0, y: 0, width: 1, height: 1)
+                : BackgroundImage.cameraRect(scale: snapshot.cameraScale),
             personMask: frameBackground == nil && !snapshot.backgroundBlurEnabled
                 ? nil : personMask(for: pixelBuffer, region: cropRect, matte: snapshot.matte),
             matte: snapshot.matte,

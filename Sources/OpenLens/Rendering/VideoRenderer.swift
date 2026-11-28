@@ -11,6 +11,7 @@ struct RenderUniforms {
     var overlayRect: SIMD4<Float>
     var backgroundRect: SIMD4<Float>
     var maskRect: SIMD4<Float>
+    var cameraRect: SIMD4<Float>
     var overlayOpacity: Float
     var mirror: Float
     var lumaOffset: Float
@@ -166,6 +167,10 @@ final class VideoRenderer {
         var adjustments: ImageAdjustments = .neutral
         /// Replaces the room around the person when set.
         var background: BackgroundImage?
+        /// Where the camera picture sits in the output, normalized with a
+        /// top-left origin. Smaller than the frame only in front of a
+        /// background, which fills the rest.
+        var cameraRect = CGRect(x: 0, y: 0, width: 1, height: 1)
         /// Where the person is, from `PersonSegmenter`. Without one, a set
         /// background covers the whole frame: if the person cannot be found,
         /// showing the room that was meant to be hidden is the worse failure.
@@ -405,6 +410,12 @@ final class VideoRenderer {
             } ?? SIMD4<Float>(0, 0, 0, 0),
             backgroundRect: backgroundRect,
             maskRect: maskRect,
+            cameraRect: SIMD4<Float>(
+                Float(frame.cameraRect.origin.x),
+                Float(frame.cameraRect.origin.y),
+                Float(frame.cameraRect.width),
+                Float(frame.cameraRect.height)
+            ),
             overlayOpacity: Float(frame.overlay?.opacity ?? 0),
             mirror: frame.mirror ? 1 : 0,
             lumaOffset: isFullRange ? 0.0 : 16.0 / 255.0,

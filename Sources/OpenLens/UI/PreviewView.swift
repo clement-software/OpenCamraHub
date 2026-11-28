@@ -175,8 +175,13 @@ final class MetalPreviewView: NSView {
         let box = metalLayer.frame
         guard box.width > 0, box.height > 0 else { return nil }
         var u = (point.x - box.minX) / box.width
-        let v = (point.y - box.minY) / box.height
+        var v = (point.y - box.minY) / box.height
         guard u >= 0, u <= 1, v >= 0, v <= 1 else { return nil }
+        // Over the background around a shrunk camera, the nearest edge of the
+        // camera picture is the anchor.
+        let camera = model.currentCameraRect
+        u = min(max((u - camera.minX) / camera.width, 0), 1)
+        v = min(max((v - camera.minY) / camera.height, 0), 1)
         if model.scenes.selectedScene?.mirrored == true { u = 1 - u }
         let crop = model.currentCropRect
         return CGPoint(x: crop.minX + u * crop.width, y: crop.minY + v * crop.height)
@@ -254,9 +259,10 @@ final class MetalPreviewView: NSView {
 
         case .pan:
             let crop = model.currentCropRect
+            let camera = model.currentCameraRect
             let mirrored = model.scenes.selectedScene?.mirrored == true
-            let dxView = (point.x - origin.x) / box.width
-            let dyView = (point.y - origin.y) / box.height
+            let dxView = (point.x - origin.x) / box.width / camera.width
+            let dyView = (point.y - origin.y) / box.height / camera.height
             // Dragging moves the image, so the crop window travels the other way.
             let delta = CGSize(
                 width: (mirrored ? dxView : -dxView) * crop.width,

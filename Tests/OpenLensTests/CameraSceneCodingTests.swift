@@ -39,6 +39,7 @@ final class CameraSceneCodingTests: XCTestCase {
         XCTAssertTrue(scene.lighting.lights.isEmpty)
         XCTAssertFalse(scene.backgroundEnabled)
         XCTAssertFalse(scene.backgroundBlurEnabled)
+        XCTAssertEqual(scene.cameraScale, 1)
     }
 
     func testLightingSurvivesASaveAndReload() throws {
@@ -111,6 +112,7 @@ final class CameraSceneCodingTests: XCTestCase {
             overlayOpacity: 0.59,
             backgroundEnabled: true,
             backgroundBlurEnabled: true,
+            cameraScale: 0.6,
             adjustments: ImageAdjustments(exposure: 0.5, contrast: 0.2),
             lighting: SceneLighting(
                 isEnabled: true, lights: ["ABC": KeyLightState(isOn: true, brightness: 25, mired: 178)])
@@ -140,6 +142,7 @@ final class CameraSceneCodingTests: XCTestCase {
                 "id", "name", "deviceID", "deviceName", "crop", "mirrored",
                 "quality", "overlayEnabled", "overlayRect", "overlayOpacity",
                 "adjustments", "lighting", "backgroundEnabled", "backgroundBlurEnabled",
+                "cameraScale",
             ],
             "A scene property was added or removed. Check that it is listed in "
                 + "CodingKeys and in the hand-written initialiser, and that "

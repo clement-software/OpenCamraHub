@@ -279,6 +279,7 @@ final class AppModel: ObservableObject {
             $0.overlayOpacity = scene.overlayOpacity
             $0.backgroundEnabled = scene.backgroundEnabled
             $0.backgroundBlurEnabled = scene.backgroundBlurEnabled
+            $0.cameraScale = scene.cameraScale
             $0.adjustments = scene.adjustments
         }
         // Gliding a crop across a camera change looks like a glitch, so only
@@ -561,6 +562,20 @@ final class AppModel: ObservableObject {
             if enabled { $0.backgroundEnabled = false }
         }
         applyBackground()
+    }
+
+    func setCameraScale(_ scale: Double) {
+        scenes.mutateSelected { $0.cameraScale = scale }
+        pipeline?.update { $0.cameraScale = scale }
+        schedulePersist()
+    }
+
+    /// Where the camera picture sits in the output, as the renderer places it.
+    var currentCameraRect: CGRect {
+        guard let scene = scenes.selectedScene, scene.backgroundEnabled, scenes.backgroundURL != nil else {
+            return CGRect(x: 0, y: 0, width: 1, height: 1)
+        }
+        return BackgroundImage.cameraRect(scale: scene.cameraScale)
     }
 
     private func applyBackground() {

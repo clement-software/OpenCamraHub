@@ -29,6 +29,17 @@ struct BackgroundImage {
         let height = imageAspect / outputAspect
         return CGRect(x: 0, y: (1 - height) / 2, width: 1, height: height)
     }
+
+    /// How small the person can be made in front of the image.
+    static let cameraScaleRange: ClosedRange<Double> = 0.3...1
+
+    /// Where the camera picture sits when it is shrunk to `scale` of the
+    /// frame, so that the person matches the image's scale: centred and
+    /// standing on the bottom edge, where the camera already cuts them off.
+    static func cameraRect(scale: Double) -> CGRect {
+        let scale = min(max(scale, cameraScaleRange.lowerBound), cameraScaleRange.upperBound)
+        return CGRect(x: (1 - scale) / 2, y: 1 - scale, width: scale, height: scale)
+    }
 }
 
 /// How the person is cut out and the room blurred, tuned by the user in the

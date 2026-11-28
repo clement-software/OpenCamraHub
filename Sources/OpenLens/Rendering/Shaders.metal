@@ -12,6 +12,9 @@ struct RenderUniforms {
     // The part of the source the person mask covers, in normalized source
     // space. Zero width when there is no mask, which means nobody was found.
     float4 maskRect;
+    // Where the camera picture sits in normalized output space: the whole
+    // output, unless it is shrunk in front of a background image.
+    float4 cameraRect;
     float  overlayOpacity;
     // 1 when the source should be mirrored horizontally.
     float  mirror;
@@ -48,6 +51,8 @@ struct VertexOut {
     float2 sourceCoord;
     // Coordinates in output space, 0...1, used to place the overlay.
     float2 outputCoord;
+    // Coordinates in the camera picture, 0...1 where it is on screen.
+    float2 cameraCoord;
 };
 
 // A single oversized triangle covers the viewport with no index buffer and no
@@ -62,8 +67,9 @@ vertex VertexOut openlens_vertex(uint vertexID [[vertex_id]],
     out.position = float4(positions[vertexID], 0.0, 1.0);
     float2 uv = coords[vertexID];
     out.outputCoord = uv;
+    out.cameraCoord = (uv - u.cameraRect.xy) / u.cameraRect.zw;
 
-    float2 cropUV = uv;
+    float2 cropUV = out.cameraCoord;
     if (u.mirror > 0.5) {
         cropUV.x = 1.0 - cropUV.x;
     }
@@ -120,7 +126,9 @@ static inline float person_alpha(VertexOut in,
                                  float3 guideWeights,
                                  constant RenderUniforms &u)
 {
-    if (u.maskRect.z <= 0.0 || u.maskRect.w <= 0.0) {
+    // Nobody was found, or this pixel is outside a shrunk camera picture.
+    if (u.maskRect.z <= 0.0 || u.maskRect.w <= 0.0
+        || any(in.cameraCoord < 0.0) || any(in.cameraCoord > 1.0)) {
         return 0.0;
     }
     constexpr sampler maskSampler(filter::linear, address::clamp_to_edge);
