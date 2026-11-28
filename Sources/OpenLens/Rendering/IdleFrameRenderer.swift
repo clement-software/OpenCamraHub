@@ -157,7 +157,9 @@ enum IdleFrameRenderer {
         for y in stride(from: 0, to: height, by: 2) {
             let chromaRow = chromaPlane + (y / 2) * chromaStride
             for x in stride(from: 0, to: width, by: 2) {
-                var red = 0.0, green = 0.0, blue = 0.0
+                var red = 0.0
+                var green = 0.0
+                var blue = 0.0
                 for dy in 0..<2 where y + dy < height {
                     let srcRow = src + (y + dy) * srcStride
                     for dx in 0..<2 where x + dx < width {
@@ -167,7 +169,9 @@ enum IdleFrameRenderer {
                         red += Double(pixel[2]) / 255
                     }
                 }
-                red /= 4; green /= 4; blue /= 4
+                red /= 4
+                green /= 4
+                blue /= 4
                 let y01 = luma(red, green, blue)
                 let cb = (blue - y01) / 1.772 * 255 + 128
                 let cr = (red - y01) / 1.402 * 255 + 128

@@ -84,7 +84,7 @@ final class LightController: ObservableObject {
         refreshTask = nil
         hintTask?.cancel()
         hintTask = nil
-        pendingWrites.values.forEach { $0.cancel() }
+        for task in pendingWrites.values { task.cancel() }
         pendingWrites.removeAll()
         pendingChanges.removeAll()
     }
@@ -259,18 +259,18 @@ final class LightController: ObservableObject {
     // MARK: - Group actions
 
     func setAllOn(_ isOn: Bool) {
-        lights.forEach { setOn(isOn, for: $0.device.serialNumber) }
+        for light in lights { setOn(isOn, for: light.device.serialNumber) }
     }
 
     /// Matching the lamps is the change most often wanted: two lights at
     /// different colour temperatures put a cast on one side of the face that no
     /// single white balance can correct.
     func setAllKelvin(_ kelvin: Int) {
-        lights.forEach { setKelvin(kelvin, for: $0.device.serialNumber) }
+        for light in lights { setKelvin(kelvin, for: light.device.serialNumber) }
     }
 
     func setAllBrightness(_ brightness: Int) {
-        lights.forEach { setBrightness(brightness, for: $0.device.serialNumber) }
+        for light in lights { setBrightness(brightness, for: light.device.serialNumber) }
     }
 
     /// True when every reachable light already agrees on colour temperature.

@@ -222,17 +222,20 @@ private final class KeyLightStubProtocol: URLProtocol {
         private var stored: [KeyLightClient.LightsPayload] = []
 
         func record(_ payload: KeyLightClient.LightsPayload) {
-            lock.lock(); defer { lock.unlock() }
+            lock.lock()
+            defer { lock.unlock() }
             stored.append(payload)
         }
 
         func reset() {
-            lock.lock(); defer { lock.unlock() }
+            lock.lock()
+            defer { lock.unlock() }
             stored.removeAll()
         }
 
         var puts: [KeyLightClient.LightsPayload] {
-            lock.lock(); defer { lock.unlock() }
+            lock.lock()
+            defer { lock.unlock() }
             return stored
         }
     }
