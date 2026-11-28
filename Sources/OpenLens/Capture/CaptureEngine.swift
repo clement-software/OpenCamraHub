@@ -77,6 +77,8 @@ final class CaptureEngine: NSObject {
     private let log = Logger(subsystem: OpenLensID.appBundleID, category: "capture")
 
     private var currentInput: AVCaptureDeviceInput?
+    /// Set while the source is an Android phone instead of a capture device.
+    private var androidStream: AndroidStream?
     private(set) var currentDeviceID: String?
     /// Written on the session queue when a format is chosen and on the sample
     /// queue when frames arrive, read on the main thread, so it sits behind a lock.
@@ -111,13 +113,15 @@ final class CaptureEngine: NSObject {
             mediaType: .video,
             position: .unspecified
         )
+        // ponytail: the phone is always listed, connected or not; checking the
+        // forwarded port would make the list wait on the network.
         return discovery.devices.map {
             CaptureDeviceInfo(
                 id: $0.uniqueID,
                 name: $0.localizedName,
                 isBuiltIn: $0.deviceType == .builtInWideAngleCamera
             )
-        }
+        } + [CaptureDeviceInfo(id: AndroidStream.deviceID, name: AndroidStream.deviceName, isBuiltIn: false)]
     }
 
     static func requestAccess() async -> Bool {
@@ -139,16 +143,38 @@ final class CaptureEngine: NSObject {
     func stop() {
         sessionQueue.async { [weak self] in
             guard let self else { return }
-            if self.session.isRunning { self.session.stopRunning() }
-            if let currentInput = self.currentInput {
-                self.session.removeInput(currentInput)
-                self.currentInput = nil
-            }
+            self.stopSession()
+            self.androidStream?.stop()
+            self.androidStream = nil
             self.currentDeviceID = nil
         }
     }
 
+    private func stopSession() {
+        if session.isRunning { session.stopRunning() }
+        if let currentInput {
+            session.removeInput(currentInput)
+            self.currentInput = nil
+        }
+    }
+
     private func configure(deviceID: String, quality: CaptureQuality) {
+        // The phone brings its own resolution, so the quality does not apply.
+        if deviceID == AndroidStream.deviceID {
+            stopSession()
+            if androidStream == nil {
+                let stream = AndroidStream(queue: sampleQueue) { [weak self] in self?.deliver($0) }
+                stream.start()
+                androidStream = stream
+                sourceFrameRate = 0
+                rateWindowStart = 0
+            }
+            currentDeviceID = deviceID
+            return
+        }
+        androidStream?.stop()
+        androidStream = nil
+
         guard let device = AVCaptureDevice(uniqueID: deviceID) else {
             delegate?.captureEngine(self, didFailWith: .deviceUnavailable(deviceID))
             return
@@ -392,6 +418,11 @@ extension CaptureEngine: AVCaptureVideoDataOutputSampleBufferDelegate {
         from connection: AVCaptureConnection
     ) {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        deliver(pixelBuffer)
+    }
+
+    /// Hands a frame from the camera or the phone on, on the sample queue.
+    private func deliver(_ pixelBuffer: CVPixelBuffer) {
         // The session can hand back a different size than the format asked for, and the
         // "lossless up to Nx" headroom is only honest if it reflects the pixels we really get.
         let delivered = CGSize(

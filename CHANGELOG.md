@@ -34,6 +34,12 @@ All notable changes to OpenLens are documented here. The format follows
   Only the part of the camera on screen is examined, so zooming in also sharpens
   the cut-out. The person is found beside the camera rather than in its way, so
   even Accurate on a 4K camera keeps the picture at full frame rate.
+- **An Android phone as the camera, over USB.** The OpenCamraHub Webcam app,
+  in `Tools/openlens-android`, streams the phone camera you pick in H.264 from
+  the phone's hardware encoder, at up to 1080p and 30 fps. With
+  `adb forward tcp:8765 tcp:8765`, **Android phone (USB)** in the camera list
+  receives it and the Mac's hardware decodes it. It needs no webcam mode from
+  the phone's maker, and nothing is sent over the Wi-Fi.
 
 ## [0.4.6] - 2026-09-24
 

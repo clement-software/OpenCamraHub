@@ -86,6 +86,10 @@ want the product rather than the source. See
   showing the room. Or blur the room instead, with the camera's own picture.
   Quality, edge detail, softness, stability and shrink tune the cut-out for
   your room and camera.
+- **An Android phone as the camera, over USB.** The small OpenCamraHub Webcam
+  app in [`Tools/openlens-android`](Tools/openlens-android) streams the phone
+  camera you choose, encoded by the phone's hardware, and **Android phone
+  (USB)** in the camera list receives it through `adb forward`.
 - **Tone and colour correction** for cameras that have no controls of their own —
   HDMI grabbers like a Cam Link expose none, and macOS offers no manual values
   either. Exposure, black point, white point, midtones and an S-curve contrast,
@@ -453,6 +457,11 @@ It opens two kinds of network connection:
   **Check for Updates…** yourself.
 - **Elgato Key Lights on your local network**, found over Bonjour and driven over
   their local HTTP API. Nothing about them leaves your network.
+
+With **Android phone (USB)** as a scene's camera, it also connects to
+`127.0.0.1:8765`, which `adb forward` carries over the USB cable to the phone.
+The phone app listens only on its own loopback address, so the picture does not
+cross a network.
 
 **What is stored, and where.** Everything the app remembers is in one
 preferences file inside its sandbox container:

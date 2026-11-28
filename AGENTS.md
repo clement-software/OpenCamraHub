@@ -15,6 +15,7 @@ drives Elgato Key Lights and is remote-controllable over a local socket.
 | `Tests/OpenLensTests` | Unit and rendering tests; the test target compiles app sources directly (see `project.yml`) |
 | `Tools/openlens-streamdeck` | The OpenDeck / Stream Deck plugin (Node, no dependencies) |
 | `Tools/openlens-mcp` | The MCP server and socket client the plugin vendors |
+| `Tools/openlens-android` | The Android app that streams a phone camera over USB (Java, built by `build.sh` without Gradle) |
 | `site/`, `scripts/build_site.sh` | The GitHub Pages site |
 | `project.yml` → `OpenLens.xcodeproj` | XcodeGen spec and the committed project generated from it |
 | `.claude/skills/` | Agent skills vendored for this repository (see "Writing Swift") |
