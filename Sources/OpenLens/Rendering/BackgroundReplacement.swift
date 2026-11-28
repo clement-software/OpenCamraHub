@@ -31,7 +31,8 @@ struct BackgroundImage {
     }
 }
 
-/// How the person is cut out, tuned by the user in the Background section.
+/// How the person is cut out and the room blurred, tuned by the user in the
+/// Background section.
 ///
 /// Global rather than per scene: what looks right depends on the room, the
 /// light and the camera, not on the framing.
@@ -52,8 +53,14 @@ struct MatteSettings: Codable, Equatable {
     var stability: Double = 0.2
     /// Pulls the edge in, to remove a fringe of the old room.
     var shrink: Double = 0
+    /// How strongly the room is blurred, when it is.
+    var blur: Double = 1.0 / 3
 
     static let standard = MatteSettings()
+
+    /// The blur's Gaussian sigma as a fraction of the visible width: 1/192
+    /// to about 1/19, 1/48 by default.
+    var blurFraction: Double { (1 + 9 * blur) / 192 }
 
     static let stabilityRange: ClosedRange<Double> = 0...0.9
     static let shrinkRange: ClosedRange<Double> = 0...0.5

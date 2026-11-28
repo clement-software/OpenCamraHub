@@ -318,6 +318,16 @@ struct InspectorView: View {
             LightingSection(model: model, isExpanded: $lightingExpanded)
 
             Section(isExpanded: $backgroundExpanded) {
+                Toggle("Blur background", isOn: backgroundBlurEnabledBinding)
+                if isBlurringBackground {
+                    AdjustmentSlider(
+                        title: "Blur",
+                        value: $model.matte.blur,
+                        range: 0...1,
+                        onCommit: {},
+                        scale: .percent
+                    )
+                }
                 Toggle("Replace background", isOn: backgroundEnabledBinding)
                     .disabled(scenes.backgroundURL == nil)
 
@@ -336,7 +346,9 @@ struct InspectorView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                }
 
+                if scenes.backgroundURL != nil || isBlurringBackground {
                     Picker("Quality", selection: $model.matte.quality) {
                         Text("Fast").tag(MatteSettings.Quality.fast)
                         Text("Balanced").tag(MatteSettings.Quality.balanced)
@@ -377,12 +389,15 @@ struct InspectorView: View {
             } header: {
                 SectionHeader(
                     "Background",
-                    info: "Replaces everything around you with an image. The Mac finds the "
-                        + "person in each frame with Vision; no picture leaves it. The image "
-                        + "fills the frame without being stretched, and it is neither "
-                        + "zoomed, mirrored nor colour-corrected with the camera. If no "
-                        + "person can be found, the image covers the whole frame rather "
-                        + "than showing the room.\n\n"
+                    info: "Blur background softens the room behind you, as strongly as the "
+                        + "Blur slider says, for every scene; it is zoomed, mirrored and "
+                        + "colour-corrected with the camera. Replace background "
+                        + "puts an image there instead, and only one of the two is on at a "
+                        + "time. The Mac finds the person in each frame with Vision; no "
+                        + "picture leaves it. The image fills the frame without being "
+                        + "stretched, and it is neither zoomed, mirrored nor colour-corrected "
+                        + "with the camera. If no person can be found, the whole frame is "
+                        + "blurred or covered by the image rather than showing the room.\n\n"
                         + "The cut-out settings apply to every scene. Quality picks Vision's "
                         + "model: Balanced has 4 times the detail of Fast and Accurate about "
                         + "60 times, but each updates less often, so a moving hand trails "
@@ -394,8 +409,10 @@ struct InspectorView: View {
                         + "Stability keeps part of the previous mask, less where you move, "
                         + "so a still edge stops flickering. Shrink edge pulls the edge in "
                         + "to remove a fringe of the room, at the cost of fine hair.",
-                    summary: scenes.selectedScene?.backgroundEnabled == true ? "On" : "Off",
-                    summaryIsActive: scenes.selectedScene?.backgroundEnabled ?? false
+                    summary: isBlurringBackground
+                        ? "Blur" : scenes.selectedScene?.backgroundEnabled == true ? "Image" : "Off",
+                    summaryIsActive: isBlurringBackground
+                        || scenes.selectedScene?.backgroundEnabled == true
                 )
             }
 
@@ -570,6 +587,17 @@ struct InspectorView: View {
         Binding(
             get: { scenes.selectedScene?.overlayEnabled ?? false },
             set: { model.setOverlayEnabled($0) }
+        )
+    }
+
+    private var isBlurringBackground: Bool {
+        scenes.selectedScene?.backgroundBlurEnabled ?? false
+    }
+
+    private var backgroundBlurEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { isBlurringBackground },
+            set: { model.setBackgroundBlurEnabled($0) }
         )
     }
 
