@@ -14,7 +14,19 @@ All notable changes to OpenLens are documented here. The format follows
   no picture leaves it. The image fills the frame without being stretched, and
   it is neither zoomed, mirrored nor colour-corrected with the camera. If no
   person can be found, the image covers the whole frame rather than showing the
-  room. Edges are softer than the rest of the picture, hair especially.
+  room.
+- **Cut-out settings**, under the background, for every scene at once. They are
+  there to fix an edge that looks blocky:
+  - **Quality** (Fast, Balanced, Accurate) chooses Vision's model.
+  - **Edge detail** lets the outlines in the camera image place the edge
+    instead of the mask's coarse grid.
+  - **Softness** widens the transition.
+  - **Stability** keeps part of the previous mask where you are still.
+  - **Shrink edge** removes a fringe of the old room.
+
+  Only the part of the camera on screen is examined, so zooming in also sharpens
+  the cut-out. The person is found beside the camera rather than in its way, so
+  even Accurate on a 4K camera keeps the picture at full frame rate.
 
 ## [0.4.6] - 2026-09-24
 

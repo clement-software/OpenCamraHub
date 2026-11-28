@@ -336,6 +336,43 @@ struct InspectorView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
+
+                    Picker("Quality", selection: $model.matte.quality) {
+                        Text("Fast").tag(MatteSettings.Quality.fast)
+                        Text("Balanced").tag(MatteSettings.Quality.balanced)
+                        Text("Accurate").tag(MatteSettings.Quality.accurate)
+                    }
+                    .pickerStyle(.segmented)
+                    AdjustmentSlider(
+                        title: "Edge detail",
+                        value: $model.matte.edgeDetail,
+                        range: 0...1,
+                        onCommit: {},
+                        scale: .percent
+                    )
+                    AdjustmentSlider(
+                        title: "Softness",
+                        value: $model.matte.softness,
+                        range: 0...1,
+                        onCommit: {},
+                        scale: .percent
+                    )
+                    AdjustmentSlider(
+                        title: "Stability",
+                        value: $model.matte.stability,
+                        range: MatteSettings.stabilityRange,
+                        onCommit: {},
+                        scale: .percent
+                    )
+                    AdjustmentSlider(
+                        title: "Shrink edge",
+                        value: $model.matte.shrink,
+                        range: MatteSettings.shrinkRange,
+                        onCommit: {},
+                        scale: .percent
+                    )
+                    Button("Reset") { model.matte = .standard }
+                        .disabled(model.matte == .standard)
                 }
             } header: {
                 SectionHeader(
@@ -345,8 +382,18 @@ struct InspectorView: View {
                         + "fills the frame without being stretched, and it is neither "
                         + "zoomed, mirrored nor colour-corrected with the camera. If no "
                         + "person can be found, the image covers the whole frame rather "
-                        + "than showing the room. Edges are softer than the rest of the "
-                        + "picture, hair especially.",
+                        + "than showing the room.\n\n"
+                        + "The cut-out settings apply to every scene. Quality picks Vision's "
+                        + "model: Balanced has 4 times the detail of Fast and Accurate about "
+                        + "60 times, but each updates less often, so a moving hand trails "
+                        + "further behind. Only the part of the camera on screen is "
+                        + "examined, so zooming in also sharpens the cut-out.\n\n"
+                        + "Edge detail makes the edge follow the outlines in the picture "
+                        + "instead of the mask's coarse grid; turn it down if a busy "
+                        + "background bleeds into the edge. Softness widens the transition. "
+                        + "Stability keeps part of the previous mask, less where you move, "
+                        + "so a still edge stops flickering. Shrink edge pulls the edge in "
+                        + "to remove a fringe of the room, at the cost of fine hair.",
                     summary: scenes.selectedScene?.backgroundEnabled == true ? "On" : "Off",
                     summaryIsActive: scenes.selectedScene?.backgroundEnabled ?? false
                 )

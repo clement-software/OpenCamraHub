@@ -9,6 +9,9 @@ struct RenderUniforms {
     // The part of the background image that fills the output, in normalized
     // texture space. Zero width when there is no background.
     float4 backgroundRect;
+    // The part of the source the person mask covers, in normalized source
+    // space. Zero width when there is no mask, which means nobody was found.
+    float4 maskRect;
     float  overlayOpacity;
     // 1 when the source should be mirrored horizontally.
     float  mirror;
@@ -31,6 +34,10 @@ struct RenderUniforms {
     float  tintShift;
     float  shadowShift;
     float  highlightShift;
+    // How the mask is refined; see MatteSettings in BackgroundReplacement.swift.
+    float  maskSpatialFactor;
+    float  maskRangeFactor;
+    float  maskShrink;
 };
 
 struct VertexOut {
@@ -89,33 +96,91 @@ static inline float4 overlay_texel(float2 outputCoord,
     return overlayTexture.sample(overlaySampler, ov) * u.overlayOpacity;
 }
 
+// How much of this pixel is the person, 0...1.
+//
+// The mask covers `maskRect` of the source and is sampled with the camera's
+// coordinates, so it follows the crop and the mirror for free.
+//
+// The mask Vision returns is at most 512×384 at the speeds a call allows, so
+// stretched over the picture its grid shows as steps. Each pixel therefore
+// resamples it as a joint bilateral filter: the 4×4 mask texels around it are
+// weighted by distance (softness) and by how far the camera's brightness at
+// each texel differs from the brightness here (edge detail). Across a real
+// edge the far side's texels lose their weight, so the transition settles on
+// the edge in the picture rather than on the mask's grid. The work follows
+// the output resolution, not the camera's, so a 4K source costs the same.
+//
+// `guideWeights` turns a guide sample into brightness: (1, 0, 0) for a luma
+// plane, the BT.601 weights for BGRA.
+static inline float person_alpha(VertexOut in,
+                                 texture2d<float> maskTexture,
+                                 texture2d<float> guideTexture,
+                                 float3 guideWeights,
+                                 constant RenderUniforms &u)
+{
+    if (u.maskRect.z <= 0.0 || u.maskRect.w <= 0.0) {
+        return 0.0;
+    }
+    constexpr sampler maskSampler(filter::linear, address::clamp_to_edge);
+    float2 size = float2(maskTexture.get_width(), maskTexture.get_height());
+    float2 position = (in.sourceCoord - u.maskRect.xy) / u.maskRect.zw * size - 0.5;
+    float2 first = floor(position) - 1.0;
+    float centre = dot(guideTexture.sample(maskSampler, in.sourceCoord).rgb, guideWeights);
+
+    float sum = 0.0;
+    float weights = 0.0;
+    for (int dy = 0; dy < 4; dy++) {
+        for (int dx = 0; dx < 4; dx++) {
+            float2 tap = first + float2(dx, dy);
+            float2 tapUV = (tap + 0.5) / size;
+            float2 tapSource = u.maskRect.xy + tapUV * u.maskRect.zw;
+            float2 distance = tap - position;
+            float difference = dot(guideTexture.sample(maskSampler, tapSource).rgb, guideWeights) - centre;
+            float weight = exp(-dot(distance, distance) * u.maskSpatialFactor
+                               - difference * difference * u.maskRangeFactor);
+            sum += weight * maskTexture.sample(maskSampler, tapUV).r;
+            weights += weight;
+        }
+    }
+    float person = sum / max(weights, 1e-5);
+    // Shrinking moves the edge inwards, dropping the thin fringe where the
+    // mask is unsure and the old room shows through.
+    return saturate((person - u.maskShrink) / (1.0 - u.maskShrink));
+}
+
 // The background colour, and in alpha how much of it replaces the camera.
 //
-// The mask is sampled with the camera's coordinates, so it follows the crop
-// and the mirror for free. The image is sampled in output space, so it is
-// neither zoomed nor mirrored with the camera, and it is applied after the
-// colour correction, which keeps the colours it was made in.
+// The image is sampled in output space, so it is neither zoomed nor mirrored
+// with the camera, and it is applied after the colour correction, which keeps
+// the colours it was made in.
 static inline float4 background_texel(VertexOut in,
                                       texture2d<float> backgroundTexture,
                                       texture2d<float> maskTexture,
+                                      texture2d<float> guideTexture,
+                                      float3 guideWeights,
                                       constant RenderUniforms &u)
 {
     if (u.backgroundRect.z <= 0.0) {
         return float4(0.0);
     }
     constexpr sampler backgroundSampler(filter::linear, address::clamp_to_edge);
-    float person = maskTexture.sample(backgroundSampler, in.sourceCoord).r;
+    float person = person_alpha(in, maskTexture, guideTexture, guideWeights, u);
     float2 uv = u.backgroundRect.xy + in.outputCoord * u.backgroundRect.zw;
     return float4(backgroundTexture.sample(backgroundSampler, uv).rgb, 1.0 - person);
 }
+
+constant float3 kLumaPlaneWeights = float3(1.0, 0.0, 0.0);
+constant float3 kRGBLumaWeights = float3(0.299, 0.587, 0.114);
 
 static inline float3 composite_background(float3 rgb,
                                           VertexOut in,
                                           texture2d<float> backgroundTexture,
                                           texture2d<float> maskTexture,
+                                          texture2d<float> guideTexture,
+                                          float3 guideWeights,
                                           constant RenderUniforms &u)
 {
-    float4 texel = background_texel(in, backgroundTexture, maskTexture, u);
+    float4 texel = background_texel(in, backgroundTexture, maskTexture, guideTexture, guideWeights, u);
     return mix(rgb, texel.rgb, texel.a);
 }
 
@@ -276,7 +341,7 @@ fragment float openlens_fragment_luma_biplanar(VertexOut in [[stage_in]],
     constexpr sampler videoSampler(filter::linear, mip_filter::none, address::clamp_to_edge);
     float luma = lumaTexture.sample(videoSampler, in.sourceCoord).r;
     float y = encode_luma(adjust_luma((luma - u.lumaOffset) * u.lumaScale, u));
-    float4 background = background_texel(in, backgroundTexture, maskTexture, u);
+    float4 background = background_texel(in, backgroundTexture, maskTexture, lumaTexture, kLumaPlaneWeights, u);
     y = mix(y, encode_luma(rgb_to_luma(background.rgb)), background.a);
 
     float4 texel = overlay_texel(in.outputCoord, overlayTexture, u);
@@ -304,7 +369,7 @@ fragment float2 openlens_fragment_chroma_biplanar(VertexOut in [[stage_in]],
     float luma = lumaTexture.sample(videoSampler, in.sourceCoord).r;
     float y = adjust_luma((luma - u.lumaOffset) * u.lumaScale, u);
     float2 chroma = adjust_chroma(decode_chroma(chromaTexture.sample(videoSampler, in.sourceCoord).rg, u), y, u);
-    float4 background = background_texel(in, backgroundTexture, maskTexture, u);
+    float4 background = background_texel(in, backgroundTexture, maskTexture, lumaTexture, kLumaPlaneWeights, u);
     chroma = mix(chroma, rgb_to_chroma(background.rgb), background.a);
 
     float4 texel = overlay_texel(in.outputCoord, overlayTexture, u);
@@ -324,7 +389,7 @@ fragment float openlens_fragment_luma_bgra(VertexOut in [[stage_in]],
 {
     constexpr sampler videoSampler(filter::linear, mip_filter::none, address::clamp_to_edge);
     float3 rgb = adjust_rgb(sourceTexture.sample(videoSampler, in.sourceCoord).rgb, u);
-    rgb = composite_background(rgb, in, backgroundTexture, maskTexture, u);
+    rgb = composite_background(rgb, in, backgroundTexture, maskTexture, sourceTexture, kRGBLumaWeights, u);
     rgb = composite_overlay(rgb, in.outputCoord, overlayTexture, u);
     return encode_luma(rgb_to_luma(saturate(rgb)));
 }
@@ -338,7 +403,7 @@ fragment float2 openlens_fragment_chroma_bgra(VertexOut in [[stage_in]],
 {
     constexpr sampler videoSampler(filter::linear, mip_filter::none, address::clamp_to_edge);
     float3 rgb = adjust_rgb(sourceTexture.sample(videoSampler, in.sourceCoord).rgb, u);
-    rgb = composite_background(rgb, in, backgroundTexture, maskTexture, u);
+    rgb = composite_background(rgb, in, backgroundTexture, maskTexture, sourceTexture, kRGBLumaWeights, u);
     rgb = composite_overlay(rgb, in.outputCoord, overlayTexture, u);
     return encode_chroma(rgb_to_chroma(saturate(rgb)));
 }
@@ -358,7 +423,7 @@ fragment float4 openlens_fragment_biplanar(VertexOut in [[stage_in]],
     // so the preview is a faithful match for what the call actually receives.
     float y = adjust_luma((luma - u.lumaOffset) * u.lumaScale, u);
     float3 rgb = ycbcr_to_rgb(y, adjust_chroma(chroma, y, u), 0.0, 1.0);
-    rgb = composite_background(rgb, in, backgroundTexture, maskTexture, u);
+    rgb = composite_background(rgb, in, backgroundTexture, maskTexture, lumaTexture, kLumaPlaneWeights, u);
     rgb = composite_overlay(rgb, in.outputCoord, overlayTexture, u);
     return float4(saturate(rgb), 1.0);
 }
@@ -372,7 +437,7 @@ fragment float4 openlens_fragment_bgra(VertexOut in [[stage_in]],
 {
     constexpr sampler videoSampler(filter::linear, mip_filter::none, address::clamp_to_edge);
     float3 rgb = adjust_rgb(sourceTexture.sample(videoSampler, in.sourceCoord).rgb, u);
-    rgb = composite_background(rgb, in, backgroundTexture, maskTexture, u);
+    rgb = composite_background(rgb, in, backgroundTexture, maskTexture, sourceTexture, kRGBLumaWeights, u);
     rgb = composite_overlay(rgb, in.outputCoord, overlayTexture, u);
     return float4(saturate(rgb), 1.0);
 }

@@ -36,6 +36,18 @@ final class AppModel: ObservableObject {
 
     private static let previewEnabledKey = "preview.enabled.v1"
 
+    /// How the person is cut out. One setting for every scene; see
+    /// `MatteSettings`.
+    @Published var matte = MatteSettings.standard {
+        didSet {
+            guard matte != oldValue else { return }
+            UserDefaults.standard.set(try? JSONEncoder().encode(matte), forKey: Self.matteKey)
+            pipeline?.update { $0.matte = matte }
+        }
+    }
+
+    private static let matteKey = "background.matte.v1"
+
     let scenes = SceneStore()
     let installer = SystemExtensionInstaller()
     let extensionClient = ExtensionClient()
@@ -70,6 +82,12 @@ final class AppModel: ObservableObject {
         if UserDefaults.standard.object(forKey: Self.previewEnabledKey) != nil {
             previewEnabled = UserDefaults.standard.bool(forKey: Self.previewEnabledKey)
         }
+        // A setting saved by a version with other fields reads as the default.
+        if let data = UserDefaults.standard.data(forKey: Self.matteKey),
+            let saved = try? JSONDecoder().decode(MatteSettings.self, from: data)
+        {
+            matte = saved
+        }
         do {
             let renderer = try VideoRenderer()
             let pipeline = FramePipeline(renderer: renderer, extensionClient: extensionClient)
@@ -81,6 +99,7 @@ final class AppModel: ObservableObject {
             }
             capture.delegate = pipeline
             self.pipeline = pipeline
+            pipeline.update { $0.matte = matte }
         } catch {
             errorMessage = "Metal is unavailable: \(error.localizedDescription)"
         }
