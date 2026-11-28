@@ -72,6 +72,23 @@ struct CameraScene: Identifiable, Codable, Equatable {
     /// read as "does not drive the lights", not as "wants them all off".
     private var storedLighting: SceneLighting?
 
+    /// Optional for the same reason as `storedAdjustments`: scenes saved before
+    /// background replacement existed have no such key.
+    private var storedBackgroundEnabled: Bool?
+
+    /// Optional for the same reason as `storedBackgroundEnabled`.
+    private var storedBackgroundBlurEnabled: Bool?
+
+    var backgroundEnabled: Bool {
+        get { storedBackgroundEnabled ?? false }
+        set { storedBackgroundEnabled = newValue }
+    }
+
+    var backgroundBlurEnabled: Bool {
+        get { storedBackgroundBlurEnabled ?? false }
+        set { storedBackgroundBlurEnabled = newValue }
+    }
+
     var adjustments: ImageAdjustments {
         get { storedAdjustments ?? .neutral }
         set { storedAdjustments = newValue }
@@ -87,6 +104,8 @@ struct CameraScene: Identifiable, Codable, Equatable {
         case overlayEnabled, overlayRect, overlayOpacity
         case storedAdjustments = "adjustments"
         case storedLighting = "lighting"
+        case storedBackgroundEnabled = "backgroundEnabled"
+        case storedBackgroundBlurEnabled = "backgroundBlurEnabled"
     }
 
     /// Spelled out because the private stored property above would otherwise
@@ -102,6 +121,8 @@ struct CameraScene: Identifiable, Codable, Equatable {
         overlayEnabled: Bool = false,
         overlayRect: CGRect = CGRect(x: 0.72, y: 0.72, width: 0.24, height: 0.24),
         overlayOpacity: Double = 1.0,
+        backgroundEnabled: Bool = false,
+        backgroundBlurEnabled: Bool = false,
         adjustments: ImageAdjustments = .neutral,
         lighting: SceneLighting = .off
     ) {
@@ -115,20 +136,23 @@ struct CameraScene: Identifiable, Codable, Equatable {
         self.overlayEnabled = overlayEnabled
         self.overlayRect = overlayRect
         self.overlayOpacity = overlayOpacity
+        self.storedBackgroundEnabled = backgroundEnabled
+        self.storedBackgroundBlurEnabled = backgroundBlurEnabled
         self.storedAdjustments = adjustments
         self.storedLighting = lighting
     }
 }
 
-/// Persists scenes and the overlay image reference.
+/// Persists scenes and the overlay and background image references.
 ///
-/// The overlay is stored as a security-scoped bookmark because the app is
+/// The images are stored as security-scoped bookmarks because the app is
 /// sandboxed: a plain path would stop resolving after relaunch.
 @MainActor
 final class SceneStore: ObservableObject {
     @Published var scenes: [CameraScene] = []
     @Published var selectedSceneID: UUID?
     @Published private(set) var overlayURL: URL?
+    @Published private(set) var backgroundURL: URL?
 
     /// Why the scene list is empty, which decides whether it is safe to write.
     ///
@@ -150,11 +174,11 @@ final class SceneStore: ObservableObject {
     private let scenesKey = "scenes.v1"
     private let selectionKey = "scenes.selected.v1"
     private let overlayBookmarkKey = "overlay.bookmark.v1"
+    private let backgroundBookmarkKey = "background.bookmark.v1"
     /// Where scenes we could not decode are parked, so a bad release is
     /// recoverable by hand instead of being a permanent loss.
     private let quarantineKey = "scenes.v1.unreadable"
     private let quarantineDateKey = "scenes.v1.unreadable.date"
-    private var overlayAccessURL: URL?
 
     /// Injectable so tests can exercise the load and save rules against a
     /// throwaway suite instead of the user's real preferences.
@@ -300,31 +324,37 @@ final class SceneStore: ObservableObject {
         select(scenes[index])
     }
 
-    // MARK: - Overlay
+    // MARK: - Overlay and background images
 
     func setOverlay(url: URL?) {
-        overlayAccessURL?.stopAccessingSecurityScopedResource()
-        overlayAccessURL = nil
+        overlayURL = bookmark(url, key: overlayBookmarkKey, replacing: overlayURL)
+    }
 
+    func setBackground(url: URL?) {
+        backgroundURL = bookmark(url, key: backgroundBookmarkKey, replacing: backgroundURL)
+    }
+
+    /// Stores `url` under `key`, or forgets the key for nil, and returns the
+    /// URL now being accessed.
+    private func bookmark(_ url: URL?, key: String, replacing current: URL?) -> URL? {
+        current?.stopAccessingSecurityScopedResource()
         guard let url else {
-            defaults.removeObject(forKey: overlayBookmarkKey)
-            overlayURL = nil
-            return
+            defaults.removeObject(forKey: key)
+            return nil
         }
         if let data = try? url.bookmarkData(
             options: .withSecurityScope,
             includingResourceValuesForKeys: nil,
             relativeTo: nil
         ) {
-            defaults.set(data, forKey: overlayBookmarkKey)
+            defaults.set(data, forKey: key)
         }
         _ = url.startAccessingSecurityScopedResource()
-        overlayAccessURL = url
-        overlayURL = url
+        return url
     }
 
-    private func restoreOverlay() {
-        guard let data = defaults.data(forKey: overlayBookmarkKey) else { return }
+    private func restoreBookmark(key: String) -> URL? {
+        guard let data = defaults.data(forKey: key) else { return nil }
         var stale = false
         guard
             let url = try? URL(
@@ -332,11 +362,10 @@ final class SceneStore: ObservableObject {
                 options: .withSecurityScope,
                 relativeTo: nil,
                 bookmarkDataIsStale: &stale
-            )
-        else { return }
-        guard url.startAccessingSecurityScopedResource() else { return }
-        overlayAccessURL = url
-        overlayURL = url
+            ),
+            url.startAccessingSecurityScopedResource()
+        else { return nil }
+        return url
     }
 
     // MARK: - Persistence
@@ -374,6 +403,7 @@ final class SceneStore: ObservableObject {
         } else {
             selectedSceneID = scenes.first?.id
         }
-        restoreOverlay()
+        overlayURL = restoreBookmark(key: overlayBookmarkKey)
+        backgroundURL = restoreBookmark(key: backgroundBookmarkKey)
     }
 }

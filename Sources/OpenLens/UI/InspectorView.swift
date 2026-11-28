@@ -24,6 +24,7 @@ struct InspectorView: View {
     @AppStorage("inspector.expanded.colour") private var colourExpanded = true
     @AppStorage("inspector.expanded.lighting") private var lightingExpanded = false
     @AppStorage("inspector.expanded.output") private var outputExpanded = false
+    @AppStorage("inspector.expanded.background") private var backgroundExpanded = false
     @AppStorage("inspector.expanded.splitTone") private var splitToneExpanded = false
 
     init(model: AppModel) {
@@ -316,6 +317,105 @@ struct InspectorView: View {
 
             LightingSection(model: model, isExpanded: $lightingExpanded)
 
+            Section(isExpanded: $backgroundExpanded) {
+                Toggle("Blur background", isOn: backgroundBlurEnabledBinding)
+                if isBlurringBackground {
+                    AdjustmentSlider(
+                        title: "Blur",
+                        value: $model.matte.blur,
+                        range: 0...1,
+                        onCommit: {},
+                        scale: .percent
+                    )
+                }
+                Toggle("Replace background", isOn: backgroundEnabledBinding)
+                    .disabled(scenes.backgroundURL == nil)
+
+                HStack {
+                    Button(scenes.backgroundURL == nil ? "Choose Image…" : "Replace…") {
+                        chooseBackground()
+                    }
+                    if scenes.backgroundURL != nil {
+                        Button("Remove") { model.chooseBackground(url: nil) }
+                    }
+                }
+
+                if let url = scenes.backgroundURL {
+                    Text(url.lastPathComponent)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                if scenes.backgroundURL != nil || isBlurringBackground {
+                    Picker("Quality", selection: $model.matte.quality) {
+                        Text("Fast").tag(MatteSettings.Quality.fast)
+                        Text("Balanced").tag(MatteSettings.Quality.balanced)
+                        Text("Accurate").tag(MatteSettings.Quality.accurate)
+                    }
+                    .pickerStyle(.segmented)
+                    AdjustmentSlider(
+                        title: "Edge detail",
+                        value: $model.matte.edgeDetail,
+                        range: 0...1,
+                        onCommit: {},
+                        scale: .percent
+                    )
+                    AdjustmentSlider(
+                        title: "Softness",
+                        value: $model.matte.softness,
+                        range: 0...1,
+                        onCommit: {},
+                        scale: .percent
+                    )
+                    AdjustmentSlider(
+                        title: "Stability",
+                        value: $model.matte.stability,
+                        range: MatteSettings.stabilityRange,
+                        onCommit: {},
+                        scale: .percent
+                    )
+                    AdjustmentSlider(
+                        title: "Shrink edge",
+                        value: $model.matte.shrink,
+                        range: MatteSettings.shrinkRange,
+                        onCommit: {},
+                        scale: .percent
+                    )
+                    Button("Reset") { model.matte = .standard }
+                        .disabled(model.matte == .standard)
+                }
+            } header: {
+                SectionHeader(
+                    "Background",
+                    info: "Blur background softens the room behind you, as strongly as the "
+                        + "Blur slider says, for every scene; it is zoomed, mirrored and "
+                        + "colour-corrected with the camera. Replace background "
+                        + "puts an image there instead, and only one of the two is on at a "
+                        + "time. The Mac finds the person in each frame with Vision; no "
+                        + "picture leaves it. The image fills the frame without being "
+                        + "stretched, and it is neither zoomed, mirrored nor colour-corrected "
+                        + "with the camera. If no person can be found, the whole frame is "
+                        + "blurred or covered by the image rather than showing the room.\n\n"
+                        + "The cut-out settings apply to every scene. Quality picks Vision's "
+                        + "model: Balanced has 4 times the detail of Fast and Accurate about "
+                        + "60 times, but each updates less often, so a moving hand trails "
+                        + "further behind. Only the part of the camera on screen is "
+                        + "examined, so zooming in also sharpens the cut-out.\n\n"
+                        + "Edge detail makes the edge follow the outlines in the picture "
+                        + "instead of the mask's coarse grid; turn it down if a busy "
+                        + "background bleeds into the edge. Softness widens the transition. "
+                        + "Stability keeps part of the previous mask, less where you move, "
+                        + "so a still edge stops flickering. Shrink edge pulls the edge in "
+                        + "to remove a fringe of the room, at the cost of fine hair.",
+                    summary: isBlurringBackground
+                        ? "Blur" : scenes.selectedScene?.backgroundEnabled == true ? "Image" : "Off",
+                    summaryIsActive: isBlurringBackground
+                        || scenes.selectedScene?.backgroundEnabled == true
+                )
+            }
+
             // The preview switch used to live here too, next to the overlay,
             // because both were about what leaves the app. It has its own
             // button in the scene strip now, beside Pause, where the two kinds
@@ -436,6 +536,14 @@ struct InspectorView: View {
         if panel.runModal() == .OK { model.chooseOverlay(url: panel.url) }
     }
 
+    private func chooseBackground() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        if panel.runModal() == .OK { model.chooseBackground(url: panel.url) }
+    }
+
     // MARK: - Bindings
 
     private func adjustmentBinding(
@@ -479,6 +587,24 @@ struct InspectorView: View {
         Binding(
             get: { scenes.selectedScene?.overlayEnabled ?? false },
             set: { model.setOverlayEnabled($0) }
+        )
+    }
+
+    private var isBlurringBackground: Bool {
+        scenes.selectedScene?.backgroundBlurEnabled ?? false
+    }
+
+    private var backgroundBlurEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { isBlurringBackground },
+            set: { model.setBackgroundBlurEnabled($0) }
+        )
+    }
+
+    private var backgroundEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { scenes.selectedScene?.backgroundEnabled ?? false },
+            set: { model.setBackgroundEnabled($0) }
         )
     }
 

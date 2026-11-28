@@ -13,6 +13,7 @@
 		105D68634B9B9C84EEE6FB43 /* NumberFieldValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6A65500763225FA2538E7BB /* NumberFieldValue.swift */; };
 		11D8759DC3FAB649D38B2B73 /* PipelineGating.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFD7C1F89D1E092145DC5273 /* PipelineGating.swift */; };
 		1932E665B0D00D53008B6800 /* VideoRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F06EC23245E92E50968C3EFB /* VideoRendererTests.swift */; };
+		19D581C9F553DE171430015A /* BackgroundReplacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = B82EFAED0EEE7D44EFEED95A /* BackgroundReplacement.swift */; };
 		1B019E3355C1361A346445E0 /* CropGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D26E52E7E9C0BB8BC98139A /* CropGeometry.swift */; };
 		1B8DA488F4E499EF5D5B5972 /* ReleaseCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A3CB263F7B771EAD8A1C5DD /* ReleaseCheck.swift */; };
 		1FBDF5908DF071EF6AF41478 /* LightController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 667AA8FD6A72DCB1208DDC49 /* LightController.swift */; };
@@ -33,6 +34,7 @@
 		456A4427A270AC8D66A683DC /* NumberFieldValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6A65500763225FA2538E7BB /* NumberFieldValue.swift */; };
 		47255C531D0F067F8C71E220 /* PreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D6FE6CD627E70D7F37E2BD0 /* PreviewView.swift */; };
 		4D14E8A5B96C06EE5F2145B7 /* StreamingStateChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14A1CC567E0973847891D10F /* StreamingStateChannel.swift */; };
+		4E334873D0D0B99F292C75D1 /* BackgroundReplacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = B82EFAED0EEE7D44EFEED95A /* BackgroundReplacement.swift */; };
 		515C5FB1A3352C44716FD86D /* StreamingStateChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14A1CC567E0973847891D10F /* StreamingStateChannel.swift */; };
 		541295B76DD5783AA7F94A9D /* OverlayGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DA01A2C5E045B54C038C329 /* OverlayGeometry.swift */; };
 		58EAC6A851FB54DAD47242B2 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A919A39DC2D667B5C994F37C /* main.swift */; };
@@ -175,6 +177,7 @@
 		A5126564CB1A64BC4D9B9C99 /* OpenLensProviderSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenLensProviderSource.swift; sourceTree = "<group>"; };
 		A919A39DC2D667B5C994F37C /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		AFD7C1F89D1E092145DC5273 /* PipelineGating.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PipelineGating.swift; sourceTree = "<group>"; };
+		B82EFAED0EEE7D44EFEED95A /* BackgroundReplacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundReplacement.swift; sourceTree = "<group>"; };
 		BB466D017E1386001D34D44A /* OpenLensApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenLensApp.swift; sourceTree = "<group>"; };
 		BB49BD37153B03BC9E619717 /* FramePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FramePipeline.swift; sourceTree = "<group>"; };
 		C0505BCA7A22511BF8457B45 /* OpenLensCamera.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OpenLensCamera.entitlements; sourceTree = "<group>"; };
@@ -198,6 +201,7 @@
 		03AD2C2DA8D0DF423EE2591D /* Rendering */ = {
 			isa = PBXGroup;
 			children = (
+				B82EFAED0EEE7D44EFEED95A /* BackgroundReplacement.swift */,
 				594DD97D211CBE96D7D4BE1C /* IdleFrameRenderer.swift */,
 				1C8AD987FB525C94E02964E0 /* OverlayTexture.swift */,
 				97AB1A0194CAD05C753F36A6 /* PreviewRenderTarget.swift */,
@@ -508,6 +512,7 @@
 			files = (
 				8F56034686F4B5141AC304DB /* AppDisplayNameTests.swift in Sources */,
 				74CD0FC46DE2ADB3900C711F /* AppSceneOrderTests.swift in Sources */,
+				4E334873D0D0B99F292C75D1 /* BackgroundReplacement.swift in Sources */,
 				5DFC8268068087A7F998F9C7 /* CameraExtensionInfoPlistTests.swift in Sources */,
 				B6C68F7E9900EC5B960B9E5F /* CameraScene.swift in Sources */,
 				DD272CAE7C62453959F1DE4C /* CameraSceneCodingTests.swift in Sources */,
@@ -552,6 +557,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AF5D9E0009638860DE71E265 /* AppModel.swift in Sources */,
+				19D581C9F553DE171430015A /* BackgroundReplacement.swift in Sources */,
 				72DC35DEE0E61A48EBE90267 /* CameraScene.swift in Sources */,
 				DF3975B56C55F3F39A55E21D /* CaptureEngine.swift in Sources */,
 				5F17F4805EAAB9FDA66288ED /* ContentView.swift in Sources */,

@@ -36,6 +36,18 @@ final class AppModel: ObservableObject {
 
     private static let previewEnabledKey = "preview.enabled.v1"
 
+    /// How the person is cut out. One setting for every scene; see
+    /// `MatteSettings`.
+    @Published var matte = MatteSettings.standard {
+        didSet {
+            guard matte != oldValue else { return }
+            UserDefaults.standard.set(try? JSONEncoder().encode(matte), forKey: Self.matteKey)
+            pipeline?.update { $0.matte = matte }
+        }
+    }
+
+    private static let matteKey = "background.matte.v1"
+
     let scenes = SceneStore()
     let installer = SystemExtensionInstaller()
     let extensionClient = ExtensionClient()
@@ -70,6 +82,12 @@ final class AppModel: ObservableObject {
         if UserDefaults.standard.object(forKey: Self.previewEnabledKey) != nil {
             previewEnabled = UserDefaults.standard.bool(forKey: Self.previewEnabledKey)
         }
+        // A setting saved by a version with other fields reads as the default.
+        if let data = UserDefaults.standard.data(forKey: Self.matteKey),
+            let saved = try? JSONDecoder().decode(MatteSettings.self, from: data)
+        {
+            matte = saved
+        }
         do {
             let renderer = try VideoRenderer()
             let pipeline = FramePipeline(renderer: renderer, extensionClient: extensionClient)
@@ -81,6 +99,7 @@ final class AppModel: ObservableObject {
             }
             capture.delegate = pipeline
             self.pipeline = pipeline
+            pipeline.update { $0.matte = matte }
         } catch {
             errorMessage = "Metal is unavailable: \(error.localizedDescription)"
         }
@@ -137,6 +156,7 @@ final class AppModel: ObservableObject {
         installer.activate()
         extensionClient.connect()
         reloadOverlay()
+        reloadBackground()
         lights.start()
 
         // Only conjure a starter scene when nothing was ever saved. If the
@@ -257,6 +277,8 @@ final class AppModel: ObservableObject {
             $0.overlayEnabled = scene.overlayEnabled
             $0.overlayRect = scene.overlayRect
             $0.overlayOpacity = scene.overlayOpacity
+            $0.backgroundEnabled = scene.backgroundEnabled
+            $0.backgroundBlurEnabled = scene.backgroundBlurEnabled
             $0.adjustments = scene.adjustments
         }
         // Gliding a crop across a camera change looks like a glitch, so only
@@ -516,6 +538,40 @@ final class AppModel: ObservableObject {
         schedulePersist()
     }
 
+    // MARK: - Background
+
+    func chooseBackground(url: URL?) {
+        scenes.setBackground(url: url)
+        reloadBackground()
+    }
+
+    /// Replacing and blurring are alternatives: switching one on switches the
+    /// other off, so neither switch ever appears to do nothing.
+    func setBackgroundEnabled(_ enabled: Bool) {
+        scenes.mutateSelected {
+            $0.backgroundEnabled = enabled
+            if enabled { $0.backgroundBlurEnabled = false }
+        }
+        applyBackground()
+    }
+
+    func setBackgroundBlurEnabled(_ enabled: Bool) {
+        scenes.mutateSelected {
+            $0.backgroundBlurEnabled = enabled
+            if enabled { $0.backgroundEnabled = false }
+        }
+        applyBackground()
+    }
+
+    private func applyBackground() {
+        scenes.save()
+        guard let scene = scenes.selectedScene else { return }
+        pipeline?.update {
+            $0.backgroundEnabled = scene.backgroundEnabled
+            $0.backgroundBlurEnabled = scene.backgroundBlurEnabled
+        }
+    }
+
     // MARK: - Image adjustments
 
     var adjustments: ImageAdjustments { scenes.selectedScene?.adjustments ?? .neutral }
@@ -608,6 +664,20 @@ final class AppModel: ObservableObject {
             }
         } catch {
             errorMessage = "Could not load the overlay image."
+        }
+    }
+
+    private func reloadBackground() {
+        guard let pipeline else { return }
+        guard let url = scenes.backgroundURL else {
+            pipeline.setBackground(nil)
+            return
+        }
+        do {
+            try pipeline.loadBackground(url: url)
+        } catch {
+            pipeline.setBackground(nil)
+            errorMessage = "Could not load the background image."
         }
     }
 

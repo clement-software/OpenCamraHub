@@ -6,6 +6,35 @@ All notable changes to OpenLens are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Background replacement.** The new **Background** section of the inspector
+  takes an image, and **Replace background** puts it behind you in the selected
+  scene, in the preview and in the call. Vision finds the person on the Mac, so
+  no picture leaves it. The image fills the frame without being stretched, and
+  it is neither zoomed, mirrored nor colour-corrected with the camera. If no
+  person can be found, the image covers the whole frame rather than showing the
+  room.
+- **Background blur.** **Blur background**, in the same section, softens the
+  room behind you in the selected scene instead of replacing it, as strongly
+  as the **Blur** slider beneath it says. The blur is
+  made from the camera's own picture, so it is zoomed, mirrored and
+  colour-corrected with you. Blurring and replacing are alternatives:
+  switching one on switches the other off. If no person can be found, the
+  whole frame is blurred.
+- **Cut-out settings**, under the background, for every scene at once. They are
+  there to fix an edge that looks blocky:
+  - **Quality** (Fast, Balanced, Accurate) chooses Vision's model.
+  - **Edge detail** lets the outlines in the camera image place the edge
+    instead of the mask's coarse grid.
+  - **Softness** widens the transition.
+  - **Stability** keeps part of the previous mask where you are still.
+  - **Shrink edge** removes a fringe of the old room.
+
+  Only the part of the camera on screen is examined, so zooming in also sharpens
+  the cut-out. The person is found beside the camera rather than in its way, so
+  even Accurate on a 4K camera keeps the picture at full frame rate.
+
 ## [0.4.6] - 2026-09-24
 
 ### Fixed
