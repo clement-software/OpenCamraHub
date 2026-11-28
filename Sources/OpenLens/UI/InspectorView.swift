@@ -330,6 +330,15 @@ struct InspectorView: View {
                 }
                 Toggle("Replace background", isOn: backgroundEnabledBinding)
                     .disabled(scenes.backgroundURL == nil)
+                if isReplacingBackground {
+                    AdjustmentSlider(
+                        title: "Person size",
+                        value: cameraScaleBinding,
+                        range: BackgroundImage.cameraScaleRange,
+                        onCommit: {},
+                        scale: .percent
+                    )
+                }
 
                 HStack {
                     Button(scenes.backgroundURL == nil ? "Choose Image…" : "Replace…") {
@@ -398,6 +407,9 @@ struct InspectorView: View {
                         + "stretched, and it is neither zoomed, mirrored nor colour-corrected "
                         + "with the camera. If no person can be found, the whole frame is "
                         + "blurred or covered by the image rather than showing the room.\n\n"
+                        + "Person size shrinks the camera picture in front of the image, "
+                        + "centred on its bottom edge, so that you match the image's scale. "
+                        + "Zoom makes you larger.\n\n"
                         + "The cut-out settings apply to every scene. Quality picks Vision's "
                         + "model: Balanced has 4 times the detail of Fast and Accurate about "
                         + "60 times, but each updates less often, so a moving hand trails "
@@ -598,6 +610,17 @@ struct InspectorView: View {
         Binding(
             get: { isBlurringBackground },
             set: { model.setBackgroundBlurEnabled($0) }
+        )
+    }
+
+    private var isReplacingBackground: Bool {
+        scenes.backgroundURL != nil && scenes.selectedScene?.backgroundEnabled == true
+    }
+
+    private var cameraScaleBinding: Binding<Double> {
+        Binding(
+            get: { scenes.selectedScene?.cameraScale ?? 1 },
+            set: { model.setCameraScale($0) }
         )
     }
 

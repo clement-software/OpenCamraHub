@@ -322,6 +322,38 @@ final class VideoRendererTests: XCTestCase {
         assertDominant(\.x, try sample(output, atX: 0.75, y: 0.5))
     }
 
+    /// At half size the camera picture stands on the bottom edge, centred,
+    /// with its red left half and blue right half squeezed into x 0.25...0.75,
+    /// and the image fills the rest. The mask says the person is everywhere,
+    /// so only the placement decides what shows.
+    func testAShrunkCameraStandsOnTheBottomEdgeInFrontOfTheImage() throws {
+        let mask = try makePersonMask()
+        CVPixelBufferLockBaseAddress(mask.buffer, [])
+        memset(
+            CVPixelBufferGetBaseAddress(mask.buffer), 255,
+            CVPixelBufferGetBytesPerRow(mask.buffer) * CVPixelBufferGetHeight(mask.buffer))
+        CVPixelBufferUnlockBaseAddress(mask.buffer, [])
+
+        for source in [try makeSourceBuffer(), try makeBiplanarSourceBuffer()] {
+            var frame = try backgroundFrame(source, mask: mask)
+            frame.cameraRect = BackgroundImage.cameraRect(scale: 0.5)
+            let output = try render(frame)
+            assertDominant(\.x, try sample(output, atX: 0.35, y: 0.75))
+            assertDominant(\.z, try sample(output, atX: 0.65, y: 0.75))
+            assertDominant(\.y, try sample(output, atX: 0.5, y: 0.25))
+            assertDominant(\.y, try sample(output, atX: 0.1, y: 0.75))
+            assertDominant(\.y, try sample(output, atX: 0.9, y: 0.75))
+        }
+    }
+
+    func testTheCameraRectIsCentredOnTheBottomEdgeAndClamped() {
+        XCTAssertEqual(
+            BackgroundImage.cameraRect(scale: 0.5), CGRect(x: 0.25, y: 0.5, width: 0.5, height: 0.5))
+        XCTAssertEqual(BackgroundImage.cameraRect(scale: 2), CGRect(x: 0, y: 0, width: 1, height: 1))
+        XCTAssertEqual(
+            BackgroundImage.cameraRect(scale: 0).width, BackgroundImage.cameraScaleRange.lowerBound)
+    }
+
     /// Without a mask nobody was found, and the room that was meant to be
     /// hidden must not show.
     func testWithoutAMaskTheBackgroundCoversTheWholeFrame() throws {

@@ -85,7 +85,8 @@ want the product rather than the source. See
   camera. If nobody can be found, the image covers the whole frame rather than
   showing the room. Or blur the room instead, with the camera's own picture.
   Quality, edge detail, softness, stability and shrink tune the cut-out for
-  your room and camera.
+  your room and camera. **Person size** shrinks you in front of the image, so
+  that you match its scale.
 - **An Android phone as the camera, over USB.** The small OpenCamraHub Webcam
   app in [`Tools/openlens-android`](Tools/openlens-android) streams the phone
   camera you choose, encoded by the phone's hardware, and **Android phone
