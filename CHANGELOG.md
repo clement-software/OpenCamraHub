@@ -15,6 +15,9 @@ All notable changes to OpenLens are documented here. The format follows
   it is neither zoomed, mirrored nor colour-corrected with the camera. If no
   person can be found, the image covers the whole frame rather than showing the
   room.
+- **Video backgrounds.** **Choose Image or Video…** also takes an MP4 or a
+  MOV, which loops silently behind you. Its first frame shows while it starts,
+  so the room never does, and it plays only while the camera runs.
 - **Person size**, under **Replace background**, shrinks the camera picture in
   front of the image so that you match its scale, down to 30 %. You stay
   centred on the bottom edge, where the camera already cuts you off, and the

@@ -1,3 +1,4 @@
+import AVFoundation
 import CoreGraphics
 import CoreImage
 import CoreVideo
@@ -6,7 +7,11 @@ import Vision
 
 /// An image shown behind the person, in place of the room.
 struct BackgroundImage {
-    var texture: MTLTexture
+    /// A still image, or a video's first frame until the video plays.
+    var texture: MTLTexture?
+    /// A playing video's current frame, in BGRA. The renderer makes it a
+    /// texture that lives as long as the GPU reads it.
+    var pixelBuffer: CVPixelBuffer?
     /// The part of the image that fills the output, in normalized texture
     /// space: the image is scaled to cover the frame and centred, never
     /// stretched.
@@ -15,6 +20,15 @@ struct BackgroundImage {
     init(texture: MTLTexture, pixelSize: CGSize, outputAspect: CGFloat) {
         self.texture = texture
         visibleRect = Self.visibleRect(pixelSize: pixelSize, outputAspect: outputAspect)
+    }
+
+    init(pixelBuffer: CVPixelBuffer, outputAspect: CGFloat) {
+        self.pixelBuffer = pixelBuffer
+        visibleRect = Self.visibleRect(
+            pixelSize: CGSize(
+                width: CVPixelBufferGetWidth(pixelBuffer), height: CVPixelBufferGetHeight(pixelBuffer)),
+            outputAspect: outputAspect
+        )
     }
 
     static func visibleRect(pixelSize: CGSize, outputAspect: CGFloat) -> CGRect {
@@ -39,6 +53,66 @@ struct BackgroundImage {
     static func cameraRect(scale: Double) -> CGRect {
         let scale = min(max(scale, cameraScaleRange.lowerBound), cameraScaleRange.upperBound)
         return CGRect(x: (1 - scale) / 2, y: 1 - scale, width: scale, height: scale)
+    }
+}
+
+/// A video behind the person, looping silently.
+///
+/// It plays only while `setPlaying(true)`, so a loaded video costs nothing
+/// while the camera is off. `currentFrame()` is called from the capture queue
+/// only.
+///
+/// ponytail: the track's rotation is ignored, so a portrait phone video
+/// lies on its side; a rotation in the shader would honour it.
+final class BackgroundVideo {
+    /// The first frame, shown until the player delivers its own, so the room
+    /// never shows while the video starts. Loading it also proves the file
+    /// is a video this Mac can decode.
+    let poster: CGImage
+    private let player: AVPlayer
+    private let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+        kCVPixelBufferIOSurfacePropertiesKey as String: [:] as CFDictionary,
+        kCVPixelBufferMetalCompatibilityKey as String: true,
+    ])
+    private var loop: NSObjectProtocol?
+    private var latest: CVPixelBuffer?
+
+    init(url: URL) throws {
+        let asset = AVURLAsset(url: url)
+        poster = try AVAssetImageGenerator(asset: asset).copyCGImage(at: .zero, actualTime: nil)
+        let item = AVPlayerItem(asset: asset)
+        item.add(output)
+        player = AVPlayer(playerItem: item)
+        player.isMuted = true
+        player.preventsDisplaySleepDuringVideoPlayback = false
+        // Rewinding at the end keeps the one item, and the output on it.
+        player.actionAtItemEnd = .none
+        loop = NotificationCenter.default.addObserver(
+            forName: AVPlayerItem.didPlayToEndTimeNotification, object: item, queue: .main
+        ) { [player] _ in
+            player.seek(to: .zero)
+        }
+    }
+
+    deinit {
+        if let loop { NotificationCenter.default.removeObserver(loop) }
+        player.pause()
+    }
+
+    func setPlaying(_ playing: Bool) {
+        if playing { player.play() } else { player.pause() }
+    }
+
+    /// The frame due now, or the last one while no newer one is due.
+    func currentFrame() -> CVPixelBuffer? {
+        let time = output.itemTime(forHostTime: CACurrentMediaTime())
+        if output.hasNewPixelBuffer(forItemTime: time),
+            let buffer = output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil)
+        {
+            latest = buffer
+        }
+        return latest
     }
 }
 

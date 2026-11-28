@@ -341,7 +341,7 @@ struct InspectorView: View {
                 }
 
                 HStack {
-                    Button(scenes.backgroundURL == nil ? "Choose Image…" : "Replace…") {
+                    Button(scenes.backgroundURL == nil ? "Choose Image or Video…" : "Replace…") {
                         chooseBackground()
                     }
                     if scenes.backgroundURL != nil {
@@ -407,6 +407,7 @@ struct InspectorView: View {
                         + "stretched, and it is neither zoomed, mirrored nor colour-corrected "
                         + "with the camera. If no person can be found, the whole frame is "
                         + "blurred or covered by the image rather than showing the room.\n\n"
+                        + "A video loops silently, and plays only while the camera runs.\n\n"
                         + "Person size shrinks the camera picture in front of the image, "
                         + "centred on its bottom edge, so that you match the image's scale. "
                         + "Zoom makes you larger.\n\n"
@@ -550,7 +551,7 @@ struct InspectorView: View {
 
     private func chooseBackground() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.image]
+        panel.allowedContentTypes = [.image, .movie]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         if panel.runModal() == .OK { model.chooseBackground(url: panel.url) }

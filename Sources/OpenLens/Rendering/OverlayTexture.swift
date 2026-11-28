@@ -27,7 +27,10 @@ enum OverlayLoader {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
             let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
         else { throw LoadError.unreadable }
+        return try load(image: image, device: device)
+    }
 
+    static func load(image: CGImage, device: MTLDevice) throws -> (MTLTexture, CGSize) {
         let width = image.width
         let height = image.height
         let bytesPerRow = width * 4

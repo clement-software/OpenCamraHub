@@ -360,7 +360,11 @@ final class VideoRenderer {
 
         // Zero width switches the background, and the mask, off in the shader.
         var backgroundRect = SIMD4<Float>(0, 0, 0, 0)
-        if let visible = frame.background?.visibleRect {
+        let backgroundTexture = frame.background.flatMap { background in
+            background.pixelBuffer.flatMap { makeTexture(from: $0, plane: 0, format: .bgra8Unorm) }
+                ?? background.texture
+        }
+        if let visible = frame.background?.visibleRect, backgroundTexture != nil {
             backgroundRect = Self.vector(visible)
         }
         var maskRect = SIMD4<Float>(0, 0, 0, 0)
@@ -452,7 +456,7 @@ final class VideoRenderer {
                 encoder.setFragmentTexture(texture, index: index)
             }
             encoder.setFragmentTexture(frame.overlay?.texture ?? blankOverlay, index: 2)
-            encoder.setFragmentTexture(frame.background?.texture ?? blankOverlay, index: 3)
+            encoder.setFragmentTexture(backgroundTexture ?? blankOverlay, index: 3)
             encoder.setFragmentTexture(mask ?? blankOverlay, index: 4)
             for index in sourceTextures.indices {
                 let blurred = index < blurTextures.count ? blurTextures[index] : blankOverlay

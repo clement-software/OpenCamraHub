@@ -1,3 +1,4 @@
+import AVFoundation
 import CoreVideo
 import Metal
 import XCTest
@@ -352,6 +353,96 @@ final class VideoRendererTests: XCTestCase {
         XCTAssertEqual(BackgroundImage.cameraRect(scale: 2), CGRect(x: 0, y: 0, width: 1, height: 1))
         XCTAssertEqual(
             BackgroundImage.cameraRect(scale: 0).width, BackgroundImage.cameraScaleRange.lowerBound)
+    }
+
+    /// A playing video hands the renderer a pixel buffer per frame instead of
+    /// a texture.
+    func testAVideoFrameIsDrawnAsTheBackground() throws {
+        let green = try makeSolidBuffer(blue: 0, green: 255, red: 0)
+        var frame = try backgroundFrame(try makeSourceBuffer(), mask: nil)
+        frame.background = BackgroundImage(pixelBuffer: green, outputAspect: 16.0 / 9.0)
+        let output = try render(frame)
+        assertDominant(\.y, try sample(output, atX: 0.25, y: 0.5))
+        assertDominant(\.y, try sample(output, atX: 0.75, y: 0.5))
+    }
+
+    /// A real MP4, written here: its first frame is ready at once, and frames
+    /// keep coming once it plays, in BGRA.
+    func testABackgroundVideoGivesItsFirstFrameThenPlays() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("background-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try writeVideo(to: url, frames: 30, buffer: try makeSolidBuffer(blue: 255, green: 0, red: 0))
+
+        let video = try BackgroundVideo(url: url)
+        XCTAssertEqual(video.poster.width, 128)
+        XCTAssertEqual(video.poster.height, 72)
+
+        video.setPlaying(true)
+        var frame: CVPixelBuffer?
+        let deadline = Date().addingTimeInterval(3)
+        while frame == nil, Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            frame = video.currentFrame()
+        }
+        let playing = try XCTUnwrap(frame, "the video never delivered a frame")
+        XCTAssertEqual(CVPixelBufferGetPixelFormatType(playing), kCVPixelFormatType_32BGRA)
+        CVPixelBufferLockBaseAddress(playing, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(playing, .readOnly) }
+        let pixel = try XCTUnwrap(CVPixelBufferGetBaseAddress(playing)).assumingMemoryBound(to: UInt8.self)
+        XCTAssertGreaterThan(Int(pixel[0]), 200)
+        XCTAssertLessThan(Int(pixel[2]), 40)
+    }
+
+    private func makeSolidBuffer(blue: UInt8, green: UInt8, red: UInt8) throws -> CVPixelBuffer {
+        var buffer: CVPixelBuffer?
+        CVPixelBufferCreate(
+            kCFAllocatorDefault, 128, 72, kCVPixelFormatType_32BGRA,
+            [
+                kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
+                kCVPixelBufferMetalCompatibilityKey: true,
+            ] as CFDictionary,
+            &buffer
+        )
+        let solid = try XCTUnwrap(buffer)
+        CVPixelBufferLockBaseAddress(solid, [])
+        defer { CVPixelBufferUnlockBaseAddress(solid, []) }
+        let base = try XCTUnwrap(CVPixelBufferGetBaseAddress(solid))
+        for y in 0..<72 {
+            let row = base.advanced(by: y * CVPixelBufferGetBytesPerRow(solid)).assumingMemoryBound(
+                to: UInt8.self)
+            for x in 0..<128 {
+                row[x * 4] = blue
+                row[x * 4 + 1] = green
+                row[x * 4 + 2] = red
+                row[x * 4 + 3] = 255
+            }
+        }
+        return solid
+    }
+
+    private func writeVideo(to url: URL, frames: Int, buffer: CVPixelBuffer) throws {
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
+        let input = AVAssetWriterInput(
+            mediaType: .video,
+            outputSettings: [
+                AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: 128, AVVideoHeightKey: 72,
+            ]
+        )
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: input, sourcePixelBufferAttributes: nil)
+        writer.add(input)
+        XCTAssertTrue(writer.startWriting())
+        writer.startSession(atSourceTime: .zero)
+        for index in 0..<frames {
+            while !input.isReadyForMoreMediaData { Thread.sleep(forTimeInterval: 0.005) }
+            adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(index), timescale: 30))
+        }
+        input.markAsFinished()
+        let finished = expectation(description: "video written")
+        writer.finishWriting { finished.fulfill() }
+        wait(for: [finished], timeout: 10)
+        XCTAssertEqual(writer.status, .completed)
     }
 
     /// Without a mask nobody was found, and the room that was meant to be
